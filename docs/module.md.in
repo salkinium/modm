@@ -1,0 +1,23 @@
+!!! warning "These module docs are in beta and incomplete."
+
+# {{module.name}}{% if module.title %}: {{module.title}}{% endif %} {% if module.targets | length %}({{module.targets}} only){% endif %}
+
+{{module.description}}
+
+{% if module.options | length %}
+## Options
+{% for o in module.options %}
+#### {{o.name | replace(module.name + ":", "")}}
+
+{{o.title if o.title else "Default"}}: `{{o.ovalue | join(",")}}` ∈ `[ {{ o.ovalues | join(", ") }} ]`
+
+{{o.description}}
+{% endfor %}
+{% endif %}
+
+{% if module.dependencies | length or module.dependents | length %}
+## Dependencies
+
+{{module.graph}}
+{% endif %}
+
