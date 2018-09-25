@@ -1,0 +1,13 @@
+lbuild
+lxml
+jinja2
+colorful
+pyelftools
+pathlib
+
+# Required for the tests
+testfixtures
+coverage
+
+# For the handling of external repositories
+gitpython
