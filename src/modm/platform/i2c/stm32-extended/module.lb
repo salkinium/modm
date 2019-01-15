@@ -19,7 +19,6 @@ class Instance(Module):
         module.description = "Instance {}".format(self.instance)
 
     def prepare(self, module, options):
-        module.depends(":platform:i2c")
         module.add_option(
             NumericOption(
                 name="buffer.transaction",
@@ -27,7 +26,6 @@ class Instance(Module):
                 minimum=1,
                 maximum=2 ** 16 - 2,
                 default=8))
-
         return True
 
     def build(self, env):
@@ -82,4 +80,6 @@ def prepare(module, options):
 def build(env):
     env.outbasepath = "modm/src/modm/platform/i2c"
     env.copy("i2c_timing_calculator.hpp")
+    env.copy("i2c_master_hal.hpp")
+    env.copy("i2c_master_hal.cpp")
 

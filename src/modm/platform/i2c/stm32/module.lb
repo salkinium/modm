@@ -20,7 +20,6 @@ class Instance(Module):
         module.description = "Instance {}".format(self.instance)
 
     def prepare(self, module, options):
-        module.depends(":platform:i2c")
         module.add_option(
             NumericOption(
                 name="buffer.transaction",
@@ -28,7 +27,6 @@ class Instance(Module):
                 minimum=1,
                 maximum=2 ** 16 - 2,
                 default=8))
-
         return True
 
     def build(self, env):
@@ -48,7 +46,7 @@ class Instance(Module):
 
 def init(module):
     module.name = "i2c"
-    module.parent = "platform"
+    module.parent = ":platform"
     module.description = "Inter-Integrated Circuit (I²C)"
 
 def prepare(module, options):
@@ -71,4 +69,6 @@ def prepare(module, options):
     return True
 
 def build(env):
-    pass
+    env.outbasepath = "modm/src/modm/platform/i2c"
+    env.copy("i2c_master_hal.hpp")
+    env.copy("i2c_master_hal.cpp")
