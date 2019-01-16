@@ -1,0 +1,9 @@
+<library>
+  <extends>modm:board:disco-f469ni</extends>
+  <options>
+    <option name="modm:build:build.path">../../../build/stm32f469_discovery/i2c_test</option>
+  </options>
+  <modules>
+    <module>modm:build:scons</module>
+  </modules>
+</library>
