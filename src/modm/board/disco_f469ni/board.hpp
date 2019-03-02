@@ -19,6 +19,7 @@
 #include <modm/ui/display/graphic_display.hpp>
 #include <modm/driver/touch/ft6x06.hpp>
 #include <modm/debug/logger.hpp>
+#include <modm/math/units.hpp>
 
 /// @ingroup modm_board_disco_f469ni
 #define MODM_BOARD_HAS_LOGGER

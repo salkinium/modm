@@ -16,3 +16,6 @@
 [submodule "ext/gcc/libstdc++"]
 	path = ext/gcc/libstdc++
 	url = https://github.com/modm-io/avr-libstdcpp.git
+[submodule "ext/nholthaus/units"]
+	path = ext/nholthaus/units
+	url = https://github.com/modm-ext/units.git

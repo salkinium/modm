@@ -13,8 +13,20 @@
 // ----------------------------------------------------------------------------
 
 #include <modm/board.hpp>
+#include <modm/math.hpp>
+#include <type_traits>
+using namespace modm::literals;
 
 using namespace Board;
+
+// namespace std
+// {
+// 	template<>
+// 	struct is_arithmetic<modm::Uart::Baudrate>
+// 	{
+// 		static constexpr bool value = true;
+// 	};
+// }
 
 // ----------------------------------------------------------------------------
 int
@@ -32,6 +44,12 @@ main()
 
 	uint32_t counter(0);
 
+	// static_assert(std::is_arithmetic<modm::Uart::Baudrate>::value, "not is_arithmetic");
+	int32_t baudrate = 115'200_Baud;
+
+	// stlink::Uart::initialize<systemClock, 115'200_Baud>();
+	// ft6::I2cMaster::initialize<systemClock, 360_kBaud>();
+
 	while (1)
 	{
 		LedGreen::toggle();
@@ -46,6 +64,8 @@ main()
 		LedBlue::toggle();
 		modm::delayMilliseconds(Button::read() ? 125 : 500);
 		LedD13::toggle();
+
+
 
 		MODM_LOG_INFO << "loop: " << counter++ << modm::endl;
 	}

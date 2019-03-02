@@ -16,6 +16,7 @@
 #define MODM_INTERFACE_UART_HPP
 
 #include <modm/architecture/interface/peripheral.hpp>
+#include <modm/math/units.hpp>
 
 namespace modm
 {
@@ -64,6 +65,8 @@ public:
 #endif
 	};
 
+
+
 #ifdef __DOXYGEN__
 public:
 	/// Size of the receive buffer.
@@ -95,7 +98,7 @@ public:
 	 * @tparam	tolerance
 	 * 		the allowed absolute tolerance for the resulting baudrate
 	 */
-	template< class SystemClock, uint32_t baudrate,
+	template< class SystemClock, Baudrate baudrate,
 			uint16_t tolerance = Tolerance::OnePercent >
 	static void
 	initialize();

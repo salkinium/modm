@@ -1,0 +1,71 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+#
+# Copyright (c) 2019, Niklas Hauser
+#
+# This file is part of the modm project.
+#
+# This Source Code Form is subject to the terms of the Mozilla Public
+# License, v. 2.0. If a copy of the MPL was not distributed with this
+# file, You can obtain one at http://mozilla.org/MPL/2.0/.
+# -----------------------------------------------------------------------------
+
+import re
+from pathlib import Path
+from collections import defaultdict
+
+units_header = localpath("units/include/units.h")
+categories = {}
+choosen_categories = set()
+
+class UnitModule(Module):
+    def __init__(self, name, description):
+        self.name = name
+        self.description = description
+
+    def init(self, module):
+        module.name = self.name
+        name = " ".join(n.capitalize() for n in self.name.split("_"))
+        module.description = "# {}\n\n{}".format(name, self.description)
+
+    def prepare(self, module, options):
+        return True
+
+    def build(self, env):
+        choosen_categories.add(self.name)
+
+# -----------------------------------------------------------------------------
+def init(module):
+    module.parent = ":math"
+    module.name = "units"
+    module.description = FileReader("units/README.md")
+
+def prepare(module, options):
+    category_docs = {}
+    units_content = Path(units_header).read_text()
+
+    # Find all the categories and enabling defines
+    for match in re.finditer(r"ENABLE_PREDEFINED_([A-Z_]*)_UNITS", units_content):
+        categories[match.group(1).lower()] = match.group(0)
+
+    # Extract the category descriptions from the doxygen
+    pattern = r"@namespace\t+?units::(.*?)\n.*?@details\t+?(.*?)\* @anchor"
+    for match in re.finditer(pattern, units_content, flags=re.M|re.S):
+        category_docs[match.group(1)] = match.group(2).replace("\t", "").replace(" *", "").strip()
+
+    # Add a submodule for each category
+    for name in categories:
+        module.add_submodule(UnitModule(name, category_docs.get(name, "")))
+
+    return True
+
+def build(env):
+    env.outbasepath = "modm/ext/units"
+    env.copy(units_header, "units.h")
+
+    env.outbasepath = "modm/src/modm/math/"
+    env.substitutions = {
+        "enable_defines": sorted([categories[name] for name in choosen_categories]),
+        "categories": sorted(choosen_categories),
+    }
+    env.template("units.hpp.in")
