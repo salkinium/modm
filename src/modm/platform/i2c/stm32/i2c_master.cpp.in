@@ -150,17 +150,12 @@
 #define SERIAL_DEBUGGING 0
 
 #if SERIAL_DEBUGGING
-#	include "../../uart/stm32/uart_5.hpp"
-	typedef modm::platform::Uart5 DebugUart;
-#	include <modm/io/iostream.hpp>
-	extern modm::IOStream stream;
-#	define DEBUG_STREAM(x) stream << x << "\n"
-#	define DEBUG_STREAM_N(x) stream << x;
-#	define DEBUG(x) modm::platform::Uart5::write(x)
+#	include <modm/debug.hpp>
+#	define DEBUG_STREAM(x) MODM_LOG_DEBUG << x << "\n"
+#	define DEBUG_STREAM_N(x) MODM_LOG_DEBUG << x;
 #else
 #	define DEBUG_STREAM(x)
 #	define DEBUG_STREAM_N(x)
-#	define DEBUG(x)
 #endif
 
 #include "i2c_master_{{ id }}.hpp"
@@ -597,8 +592,10 @@ modm::platform::I2cMaster{{ id }}::initializeWithPrescaler(uint8_t peripheralFre
 	I2C{{ id }}->CR1 = I2C_CR1_SWRST; 		// reset module
 	I2C{{ id }}->CR1 = 0;
 
+%% if error_handler
 	NVIC_SetPriority(I2C{{ id }}_ER_IRQn, 10);
 	NVIC_EnableIRQ(I2C{{ id }}_ER_IRQn);
+%% endif
 	NVIC_SetPriority(I2C{{ id }}_EV_IRQn, 10);
 	NVIC_EnableIRQ(I2C{{ id }}_EV_IRQn);
 

@@ -20,8 +20,8 @@
 
 // debugging for serious dummies
 /*
-#include "../../uart/stm32/usart_2.hpp"
-#define DEBUG_SW_I2C(x) modm::platform::Usart2::write(x)
+#include <modm/debug.hpp>
+#define DEBUG_SW_I2C(x) MODM_LOG_ERROR << (x) << "\n"
 /*/
 #define DEBUG_SW_I2C(x)
 //*/

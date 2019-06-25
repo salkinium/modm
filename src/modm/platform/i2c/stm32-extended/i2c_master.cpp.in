@@ -34,15 +34,12 @@
 #define SERIAL_DEBUGGING 0
 
 #if SERIAL_DEBUGGING
-#	include "../../uart/stm32/uart_2.hpp"
-	using DebugUart = modm::platform::Usart2;
-#	include <modm/io/iostream.hpp>
-	extern modm::IOStream stream;
-#	define DEBUG_STREAM(x) stream << x << "\n"
-#	define DEBUG(x) modm::platform::Usart2::write(x)
+#	include <modm/debug.hpp>
+#	define DEBUG_STREAM(x) MODM_LOG_ERROR << x << "\n"
+#	define DEBUG_STREAM_N(x) MODM_LOG_ERROR << x
 #else
 #	define DEBUG_STREAM(x)
-#	define DEBUG(x)
+#	define DEBUG_STREAM_N(x)
 #endif
 
 #include "i2c_master_{{ id }}.hpp"
@@ -261,6 +258,7 @@ namespace
 		}
 	}
 
+%% if handle_error
 	bool modm_always_inline
 	handleError()
 	{
@@ -324,7 +322,7 @@ namespace
 		callNextTransaction();
 		return true;
 	}
-
+%% endif
 }
 
 // ----------------------------------------------------------------------------
@@ -336,7 +334,7 @@ MODM_ISR(I2C{{ id }}_EV)
 {
 	DEBUG_STREAM("\n=== IRQ ===");
 
-%% if shared_interrupt
+%% if shared_interrupt and handle_error
 	handleError();
 %% endif
 
@@ -484,7 +482,7 @@ MODM_ISR(I2C{{ id }}_EV)
 }
 
 // ----------------------------------------------------------------------------
-%% if not shared_interrupt
+%% if not shared_interrupt and handle_error
 MODM_ISR(I2C{{ id }}_ER)
 {
 	handleError();
@@ -544,9 +542,11 @@ modm::platform::I2cMaster{{ id }}::initializeWithPrescaler(uint32_t timingRegist
 	NVIC_SetPriority(I2C{{ id }}_IRQn, 10);
 	NVIC_EnableIRQ(I2C{{ id }}_IRQn);
 %% else
+%% if handle_error
 	// Enable Error Interrupt
-	NVIC_SetPriority(I2C{{ id }}_ER_IRQn, 10);
+	NVIC_SetPriority(I2C{{ id }}_ER_IRQn, 9);
 	NVIC_EnableIRQ(I2C{{ id }}_ER_IRQn);
+%% endif
 
 	// Enable Event Interrupt
 	NVIC_SetPriority(I2C{{ id }}_EV_IRQn, 10);

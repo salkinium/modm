@@ -38,6 +38,7 @@ class Instance(Module):
         properties["target"] = target = device.identifier
         properties["id"] = self.instance
         properties["shared_interrupt"] = "0" in target.family
+        properties["handle_error"] = False
 
         env.substitutions = properties
         env.outbasepath = "modm/src/modm/platform/i2c"
