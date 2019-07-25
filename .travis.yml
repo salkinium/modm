@@ -1,0 +1,17 @@
+os: osx
+osx_image: xcode11
+
+before_install:
+  - brew update
+  - brew tap osx-cross/avr
+  - brew tap osx-cross/arm
+  - brew install scons git doxygen boost zmqpp gcc avr-gcc arm-gcc-bin cmake || true
+  - pip3 install modm
+
+script:
+  - (cd test; make run-hosted-darwin)
+  - python3 tools/scripts/examples_compile.py examples/linux
+  - python3 tools/scripts/examples_compile.py examples/generic
+  - python3 tools/scripts/examples_compile.py examples/zmq
+  - python3 tools/scripts/examples_compile.py examples/arduino_uno
+  - python3 tools/scripts/examples_compile.py examples/stm32f469_discovery
