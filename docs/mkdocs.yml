@@ -75,10 +75,11 @@ nav:
     - Cookbook: guide/cookbook.md
     - Testing: guide/testing.md
   - Reference:
+    - Modules: reference/modules.md
     - Build Systems: reference/build-systems.md
     # - Overview: reference/overview.md
     # - Concepts: reference/concepts.md
-    - Modules:
+    - Module:
 # moduletable
     # - module: module.md
 # /moduletable

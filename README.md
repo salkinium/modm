@@ -35,11 +35,12 @@ without a lot of resources, so modm needs to fulfill a diverse set of objectives
 like small code size with small memory consumption, predictable program flow,
 extreme portability.
 
-The source code is freely available under the MPLv2 license, so feel
-free to fork this project and adapt it to your needs.
-The only thing we ask of you is to contribute your changes back so everyone benefits.
+The library source code is licensed as MPLv2 with any external source code under
+compatible licenses (BSD, Apache2, MIT). So feel free to fork this project and
+adapt it to your needs. The only thing we ask of you is to contribute your changes
+back so everyone can benefit.
 
-Please clone modm recursively, you will need all the submodules.
+Please clone modm recursively, you need all the submodules.
 
 ```sh
 git clone --recurse-submodules https://github.com/modm-io/modm.git
@@ -49,8 +50,8 @@ git clone --recurse-submodules https://github.com/modm-io/modm.git
 
 - Efficient and fast object-oriented C++17 API.
 - Support for hundreds of AVR and ARM Cortex-M microcontrollers from Atmel and ST.
-- Build system agnostic: We use SCons by default, but you don't have to.
-- Data-driven HAL generation using the library-builder engine.
+- Build system agnostic: Choose SCons and/or CMake.
+- Data-driven, target-specific HAL generation using the lbuild engine.
 - No memory allocations in HAL with very low overall RAM consumption.
 - Highly-configurable modules with sensible defaults and lots of documentation.
 - Cross platform peripheral interfaces incl. bit banging:
@@ -58,11 +59,12 @@ git clone --recurse-submodules https://github.com/modm-io/modm.git
     - ADC and Analog.
     - UART, I<sup>2</sup>C, SPI, CAN.
 - Interfaces and drivers for many external I<sup>2</sup>C and SPI sensors and devices.
-- Debug/logging system with IOStream interface.
+- Debug/logging system with IOStream and printf interface.
 - Lightweight, stackless threads and resumable functions using cooperative multitasking.
+- Functional (partial) libstdc++ implementation for AVRs.
+- Integration of useful third-party software: FreeRTOS, ROSserial, CMSIS-DSP.
 - Useful filter, interpolation and geometric algorithms.
 - Lightweight unit testing system (suitable for AVRs).
-- Graphical user interface for small binary and color displays.
 - Hundreds of tests to ensure correct functionality.
 
 
@@ -245,7 +247,7 @@ Kevin Läufer ([\@ekiwi](https://github.com/ekiwi)),
 Martin Rosekeit ([\@thundernail](https://github.com/thundernail)),
 Daniel Krebs ([\@daniel-k](https://github.com/daniel-k)),
 Georgi Grinshpun ([\@georgi-g](https://github.com/georgi-g)) and
-[<!--authorcount-->20<!--/authorcount-->  more contributors](https://github.com/modm-io/modm/blob/develop/AUTHORS).
+[<!--authorcount-->33<!--/authorcount-->  more contributors](https://github.com/modm-io/modm/blob/develop/AUTHORS).
 <!--/authors-->
 
 ## Folder structure
