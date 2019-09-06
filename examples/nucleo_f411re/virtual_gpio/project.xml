@@ -1,0 +1,9 @@
+<library>
+  <extends>modm:nucleo-f411re</extends>
+  <options>
+    <option name="modm:build:build.path">../../../build/nucleo_f411re/virtual_gpio</option>
+  </options>
+  <modules>
+    <module>modm:build:scons</module>
+  </modules>
+</library>
