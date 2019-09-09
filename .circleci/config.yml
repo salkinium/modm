@@ -336,6 +336,10 @@ jobs:
           command: |
             (git submodule sync && git submodule update --init --jobs 8) & pip3 install -U lbuild & wait
       - run:
+          name: Test run of docs.modm.io-generator-script
+          command: |
+            python3 tools/scripts/docs_modm_io_generator.py -t -c
+      - run:
           name: Build Homepage
           command: |
             python3 tools/scripts/synchronize_docs.py
