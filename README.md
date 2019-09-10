@@ -70,34 +70,29 @@ git clone --recurse-submodules https://github.com/modm-io/modm.git
 
 ## Targets
 
-modm can generate code for <!--avrcount-->78<!--/avrcount--> AVR and <!--stmcount-->958<!--/stmcount-->
+modm can generate code for <!--avrcount-->78<!--/avrcount--> AVR and <!--stmcount-->1077<!--/stmcount-->
 STM32 devices, however, there are different levels of support and testing.
 
 <center>
 
 | Device Family | Support | Device Family | Support | Device Family | Support |
 |:--------------|:--------|:--------------|:--------|:--------------|:--------|
-| AVR           | ★★★     | STM32F2       | ★★★     | STM32F7       | ★★★★    |
-| STM32F0       | ★★★★    | STM32F3       | ★★★★★   | STM32L4       | ★★★★    |
-| STM32F1       | ★★★★    | STM32F4       | ★★★★★   | STM32G0       | ★★★★    |
+| AVR           | ★★★     | STM32F0       | ★★★★    | STM32F1       | ★★★★    |
+| STM32F2       | ★★★★    | STM32F3       | ★★★★★   | STM32F4       | ★★★★★   |
+| STM32F7       | ★★★★    | STM32L4       | ★★★★    | STM32L4+      | ★★★★    |
+| STM32G0       | ★★★★    | STM32G4       | ★★★★    |
 
 </center>
 
-All of these targets are compiling and booting correctly
-(★)
-and have GPIO and UART working
-(★★).
-Most targets have support for basic peripherals, like I2C, SPI and ADC
-(★★★)
-as well as complicated peripherals, like Timers, CAN and external memory
-(★★★★).
-We also use a few targets in everyday development, which are very well tested
-(★★★★★).
+All of these targets are compiling and booting correctly, have GPIO and UART
+working and support basic peripherals, like I2C, SPI and ADC (★★★). Most targets
+support more advanced peripherals, like Timers, CAN and external memory (★★★★).
+We also use a few targets in everyday development, which are very well tested (★★★★★).
 
 We are only a small team of developers and are limited in the amount of targets
 we can support and test in hardware. We have prepared, but currently not finished
-support for STM32F2, STM32L0 and STM32L1. [Open an issue][issues] to ask if your
-specific target is supported out-of-the-box and what you can do if it's not.
+support for STM32L0, STM32L1, STM32L5 and STM32H7. [Open an issue][issues] to ask
+if your specific target is supported out-of-the-box and what you can do if it's not.
 
 
 ### Boards
@@ -139,11 +134,12 @@ documentation.
 <td align="center">NUCLEO-F446RE</td>
 <td align="center">NUCLEO-G071RB</td>
 </tr><tr>
+<td align="center">NUCLEO-G474RE</td>
 <td align="center">NUCLEO-L432KC</td>
 <td align="center">NUCLEO-L476RG</td>
 <td align="center">OLIMEXINO-STM32</td>
-<td align="center">STM32F030F4P6-DEMO</td>
 </tr><tr>
+<td align="center">STM32F030F4P6-DEMO</td>
 </tr>
 </table>
 <!--/bsptable-->
