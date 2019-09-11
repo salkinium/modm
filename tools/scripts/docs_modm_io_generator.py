@@ -81,7 +81,6 @@ device_list_stm = ['stm32f030rct', 'stm32f031k6u', 'stm32f038k6u', 'stm32f042t6y
 if args.test:
     # test list
     device_list = ["hosted-linux", "at90can128", "stm32f103rbt", "stm32f429ziy"]
-    device_list = ["at90pwm316"]
 else:
     device_list = device_list_hosted + device_list_avr + device_list_stm
 
@@ -156,45 +155,230 @@ html_template = """
 <head>
     <title>doc.modm.io API</title>
     <meta charset="utf-8">
+
+<style type="text/css">
+body {
+	font-family: "Ubuntu", "Helvetica Neue", Helvetica, Arial, sans-serif;
+	text-align: center;
+	padding: 0;
+	margin: 0;
+}
+header {
+	background-color: #3f51b5;
+	color: #fff;
+	padding: 0px;
+}
+table {
+	margin: auto;
+}
+td {
+	padding: 0em 0.5em;
+}
+
+*{
+	box-sizing: border-box;
+}
+.autocomplete {
+	position: relative;
+	display: inline-block;
+}
+input, select {
+	border: 1px solid transparent;
+	background-color: #f1f1f1;
+	padding: 10px;
+	font-size: 16px;
+	width: 100%;
+	border-width: 2px;
+	border-color: #fff;
+}
+input[type=text] {
+	background-color: #f1f1f1;
+	width: 100%;
+	text-transform: uppercase;
+}
+input[type=text]::placeholder {
+	text-transform: none;
+}
+input[type=submit] {
+	background-color: #3f51b5;
+	color: #fff;
+}
+.autocomplete-items {
+	position: absolute;
+	border: 1px solid #d4d4d4;
+	border-bottom: none;
+	border-top: none;
+	z-index: 99;
+	top: 100%;
+	left: 0;
+	right: 0;
+	text-transform: uppercase;
+}
+.autocomplete-items div {
+	padding: 10px;
+	cursor: pointer;
+	background-color: #fff;
+	border-bottom: 1px solid #d4d4d4;
+}
+.autocomplete-items div:hover {
+	background-color: #e9e9e9;
+}
+.autocomplete-active {
+	background-color: DodgerBlue !important;
+	color: #ffffff;
+}
+</style>
 </head>
 <body>
 <header>
-<h1><a id="h1" href="https://modm.io/">modm</a></h1>
-<h2>API documentation</h2>
+<a id="h1" href="https://modm.io/">
+<img style="height: 10em;" src="https://modm.io/images/logo.svg">
+</a>
+<h1>API documentation</h1>
 </header>
+<main>
+<p id="numtargets">Documentation is available for {{ num_devices }} devices.</p>
+<h3>Select your target:</h3>
+<form autocomplete="off" action="javascript:showDocumentation()">
+<table>
+	<tr>
+		<td>Version/Release</td>
+		<td>Microcontroller</td>
+		<td>&nbsp;</td>
+	</tr>
+	<tr>
+		<td>
+			<select id="releaseinput" name="releases">
+				<option>develop</option>
+			</select>
+		</td>
+		<td>
+			<div class="autocomplete" style="width:300px;">
+				<input id="targetinput" type="text" name="target" placeholder="Type e.g. 'F407'">
+			</div>
+		</td>
+		<td>
+			<input type="submit" value="Show Documentation">
+		</td>
+	</tr>
+</table>
+</form>
+<br />
+<small>For most microcontrollers-sub-families only the variant with largest pin-count and memory is available.</small>
+<p>Last updated: {{ date }}</p>
+
+<script type="text/javascript">
+var devices = [
+{% for d in devices %}
+"{{ d }}",
+{% endfor %}
+];
+var targetinput = document.getElementById("targetinput");
+var currentFocus;
+function showDocumentation() {
+	if(!targetinput.value) {
+		targetinput.style.transition = "border 5ms ease-out";
+		targetinput.style.borderColor = "red";
+		setTimeout(function(){
+			targetinput.style.transition = "border 5000ms ease-out";
+			targetinput.style.borderColor = "#fff";
+		}, 5000);
+		return;
+	}
+	if(!releaseinput.value) {
+		releaseinput.style.transition = "border 5ms ease-out";
+		releaseinput.style.borderColor = "red";
+		setTimeout(function(){
+			releaseinput.style.transition = "border 5000ms ease-out";
+			releaseinput.style.borderColor = "#fff";
+		}, 5000);
+		return;
+	}
+	var url = "/" + releaseinput.value + "/api/" + targetinput.value + "/";
+	location.href = url;
+}
+targetinput.addEventListener("input", function(event) {
+	var a, b, i, val = this.value;
+	closeAllLists();
+	if (!val) { return false;}
+	currentFocus = -1;
+	a = document.createElement("DIV");
+	a.setAttribute("id", this.id + "autocomplete-list");
+	a.setAttribute("class", "autocomplete-items");
+	this.parentNode.appendChild(a);
+	for (i = 0; i < devices.length; i++) {
+		var regex = RegExp(val.toLowerCase());
+		if (devices[i].toLowerCase().match(regex) != null) {
+			b = document.createElement("DIV");
+			b.innerHTML = devices[i].replace(regex, function(str) { return "<strong>" + str + "</strong>" })
+			b.innerHTML += "<input type='hidden' value='" + devices[i] + "'>";
+			b.addEventListener("click", function(event) {
+				targetinput.value = this.getElementsByTagName("input")[0].value;
+				closeAllLists();
+			});
+			a.appendChild(b);
+		}
+	}
+});
+targetinput.addEventListener("keydown", function(event) {
+	var list = document.getElementById(this.id + "autocomplete-list");
+	if (list) {
+		list = list.getElementsByTagName("div");
+	}
+	if (event.keyCode == 40) { // down key
+		currentFocus++;
+		makeItemActive(list);
+	} else if (event.keyCode == 38) { // up key
+		currentFocus--;
+		makeItemActive(list);
+	} else if (event.keyCode == 13) { // enter key
+		event.preventDefault();
+		if (currentFocus > -1) {
+			/*and simulate a click on the "active" item:*/
+			if (list) {
+				list[currentFocus].click();
+			}
+		}
+	}
+});
+function removeActiveFromList(list) {
+	for (var i = 0; i < list.length; i++) {
+		list[i].classList.remove("autocomplete-active");
+	}
+}
+function makeItemActive(list) {
+	if (!list) return false;
+	removeActiveFromList(list);
+	if (currentFocus >= list.length) {
+		currentFocus = 0;
+	}
+	if (currentFocus < 0) {
+		currentFocus = (list.length - 1);
+	}
+	list[currentFocus].classList.add("autocomplete-active");
+}
+function closeAllLists(element) {
+	var items = document.getElementsByClassName("autocomplete-items");
+	for (var i = 0; i < items.length; i++) {
+		if (element != items[i] && element != targetinput) {
+			items[i].parentNode.removeChild(items[i]);
+		}
+	}
+}
+document.addEventListener("click", function (element) {
+    closeAllLists(element.target);
+});
+</script>
+<noscript>
 <h3>Select your target</h3>
 <input type="text" id="input" placeholder="Type e.g. 'F407'" />
 <ul>
 {% for d in devices %}
- <li id="{{ d }}"><a href="develop/api/{{ d }}/">{{ d }}</a></li>
+ <li id="{{ d }}"><a href="/develop/api/{{ d }}/">{{ d }}</a></li>
 {% endfor %}
 </ul>
-<br />
-<p>Last updated: {{ date }}</p>
-<script type="text/javascript">
-var debug = document.getElementById('debug');
-var input = document.getElementById('input');
-input.onkeyup = function () {
-    var filter = RegExp(input.value.toLowerCase());
-    var lis = document.getElementsByTagName('li');
-    if(input.value.length > 0) {
-        for (var i = 0; i < lis.length; i++) {
-            var name = lis[i].id;
-            if (name.match(filter) != null) {
-                lis[i].style.display = 'list-item';
-            }
-            else {
-                lis[i].style.display = 'none';
-            }
-        }
-    }
-    else {
-        for (var i = 0; i < lis.length; i++) {
-            lis[i].style.display = 'list-item';
-        }
-    }
-}
-</script>
+</noscript>
+</main>
 </body>
 </html>
 """
@@ -207,7 +391,8 @@ Disallow: /
 def template_overview(output_dir):
     html = Environment().from_string(html_template).render(
         devices=device_list,
-        date=datetime.datetime.now().strftime("%d.%m.%Y, %H:%M"))
+        date=datetime.datetime.now().strftime("%d.%m.%Y, %H:%M"),
+        num_devices=len(device_list))
     with open(str(output_dir) + "/index.html","w+") as f:
         f.write(html)
     with open(str(output_dir) + "/robots.txt","w+") as f:
