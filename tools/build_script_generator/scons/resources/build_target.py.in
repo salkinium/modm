@@ -52,6 +52,7 @@ def build_target(env, sources):
 	env.Alias("all", ["build", "size"])
 	%% endif
 %% endif
+	env.Alias("comp_db", env.CompilationDatabase('compile_commands.json'))
 
 	env.Default("all")
 	return program

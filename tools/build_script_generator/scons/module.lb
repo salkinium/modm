@@ -139,6 +139,7 @@ def build(env):
     env.copy("site_tools/qtcreator/")
     if has_info_tool:
         env.copy("site_tools/info.c.in")
+    env.copy("site_tools/compilation_db.py")
 
     # Generate the env.BuildTarget tool
     env.substitutions = env.query("::device")

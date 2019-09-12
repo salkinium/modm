@@ -30,6 +30,7 @@ env.Append(toolpath=[
 %% for tool in tools | sort
 env.Tool("{{tool}}")
 %% endfor
+env.Tool("compilation_db")
 
 %% macro generate_flags_for_profile(name, profile, append=False)
 env{% if append %}.Append({{name | upper}}{% else %}["{{name | upper}}"]{% endif %} = [
