@@ -10,15 +10,68 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
+import os
+import sys
+import shutil
+import lbuild
+import zipfile
+import tempfile
 import argparse
 import datetime
-from jinja2 import Environment
 import multiprocessing
-import os
+
 from pathlib import Path
-import shutil
-import tempfile
-import zipfile
+from jinja2 import Environment
+from collections import defaultdict
+
+def repopath(path):
+    return Path(__file__).absolute().parents[2] / path
+def relpath(path):
+    return os.path.relpath(path, str(repopath(".")))
+
+sys.path.append(str(repopath("ext/modm-devices/tools/device")))
+from modm_devices.device_identifier import *
+
+
+
+
+def get_targets():
+    builder = lbuild.api.Builder()
+    builder._load_repositories(repopath("repo.lb"))
+    option = builder.parser.find_option(":target")
+    ignored = list(filter(lambda d: "#" not in d, repopath("test/all/ignored.txt").read_text().strip().splitlines()))
+    raw_targets = sorted(d for d in option.values if not any(d.startswith(i) for i in ignored))
+    minimal_targets = defaultdict(list)
+
+    for target in raw_targets:
+        option.value = target
+        target = option.value._identifier
+        short_id = target.copy()
+
+        if target.platform == "avr":
+            short_id.naming_schema = short_id.naming_schema \
+                .replace("{type}-{speed}{package}", "") \
+                .replace("-{speed}{package}", "")
+
+        elif target.platform == "stm32":
+            short_id.naming_schema = "{platform}{family}{name}"
+
+        elif target.platform == "hosted":
+            short_id.naming_schema = "{platform}"
+
+        short_id.set("platform", target.platform) # invalidate caches
+        minimal_targets[short_id.string].append(target)
+
+
+    # for key, values in minimal_targets.items():
+    #     minimal_targets[key] = sorted(values, key=lambda d: d.string)[-1]
+    print(len(minimal_targets.keys()))
+    print(minimal_targets.values())
+    print(minimal_targets)
+
+
+get_targets()
+exit(1)
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--test", "-t", action='store_true', help="Test mode: generate only a few targets")
@@ -158,74 +211,74 @@ html_template = """
 
 <style type="text/css">
 body {
-	font-family: "Ubuntu", "Helvetica Neue", Helvetica, Arial, sans-serif;
-	text-align: center;
-	padding: 0;
-	margin: 0;
+    font-family: "Ubuntu", "Helvetica Neue", Helvetica, Arial, sans-serif;
+    text-align: center;
+    padding: 0;
+    margin: 0;
 }
 header {
-	background-color: #3f51b5;
-	color: #fff;
-	padding: 0px;
+    background-color: #3f51b5;
+    color: #fff;
+    padding: 0px;
 }
 table {
-	margin: auto;
+    margin: auto;
 }
 td {
-	padding: 0em 0.5em;
+    padding: 0em 0.5em;
 }
 
 *{
-	box-sizing: border-box;
+    box-sizing: border-box;
 }
 .autocomplete {
-	position: relative;
-	display: inline-block;
+    position: relative;
+    display: inline-block;
 }
 input, select {
-	border: 1px solid transparent;
-	background-color: #f1f1f1;
-	padding: 10px;
-	font-size: 16px;
-	width: 100%;
-	border-width: 2px;
-	border-color: #fff;
+    border: 1px solid transparent;
+    background-color: #f1f1f1;
+    padding: 10px;
+    font-size: 16px;
+    width: 100%;
+    border-width: 2px;
+    border-color: #fff;
 }
 input[type=text] {
-	background-color: #f1f1f1;
-	width: 100%;
-	text-transform: uppercase;
+    background-color: #f1f1f1;
+    width: 100%;
+    text-transform: uppercase;
 }
 input[type=text]::placeholder {
-	text-transform: none;
+    text-transform: none;
 }
 input[type=submit] {
-	background-color: #3f51b5;
-	color: #fff;
+    background-color: #3f51b5;
+    color: #fff;
 }
 .autocomplete-items {
-	position: absolute;
-	border: 1px solid #d4d4d4;
-	border-bottom: none;
-	border-top: none;
-	z-index: 99;
-	top: 100%;
-	left: 0;
-	right: 0;
-	text-transform: uppercase;
+    position: absolute;
+    border: 1px solid #d4d4d4;
+    border-bottom: none;
+    border-top: none;
+    z-index: 99;
+    top: 100%;
+    left: 0;
+    right: 0;
+    text-transform: uppercase;
 }
 .autocomplete-items div {
-	padding: 10px;
-	cursor: pointer;
-	background-color: #fff;
-	border-bottom: 1px solid #d4d4d4;
+    padding: 10px;
+    cursor: pointer;
+    background-color: #fff;
+    border-bottom: 1px solid #d4d4d4;
 }
 .autocomplete-items div:hover {
-	background-color: #e9e9e9;
+    background-color: #e9e9e9;
 }
 .autocomplete-active {
-	background-color: DodgerBlue !important;
-	color: #ffffff;
+    background-color: DodgerBlue !important;
+    color: #ffffff;
 }
 </style>
 </head>
@@ -241,26 +294,26 @@ input[type=submit] {
 <h3>Select your target:</h3>
 <form autocomplete="off" action="javascript:showDocumentation()">
 <table>
-	<tr>
-		<td>Version/Release</td>
-		<td>Microcontroller</td>
-		<td>&nbsp;</td>
-	</tr>
-	<tr>
-		<td>
-			<select id="releaseinput" name="releases">
-				<option>develop</option>
-			</select>
-		</td>
-		<td>
-			<div class="autocomplete" style="width:300px;">
-				<input id="targetinput" type="text" name="target" placeholder="Type e.g. 'F407'">
-			</div>
-		</td>
-		<td>
-			<input type="submit" value="Show Documentation">
-		</td>
-	</tr>
+    <tr>
+        <td>Version/Release</td>
+        <td>Microcontroller</td>
+        <td>&nbsp;</td>
+    </tr>
+    <tr>
+        <td>
+            <select id="releaseinput" name="releases">
+                <option>develop</option>
+            </select>
+        </td>
+        <td>
+            <div class="autocomplete" style="width:300px;">
+                <input id="targetinput" type="text" name="target" placeholder="Type e.g. 'F407'">
+            </div>
+        </td>
+        <td>
+            <input type="submit" value="Show Documentation">
+        </td>
+    </tr>
 </table>
 </form>
 <br />
@@ -276,94 +329,94 @@ var devices = [
 var targetinput = document.getElementById("targetinput");
 var currentFocus;
 function showDocumentation() {
-	if(!targetinput.value) {
-		targetinput.style.transition = "border 5ms ease-out";
-		targetinput.style.borderColor = "red";
-		setTimeout(function(){
-			targetinput.style.transition = "border 5000ms ease-out";
-			targetinput.style.borderColor = "#fff";
-		}, 5000);
-		return;
-	}
-	if(!releaseinput.value) {
-		releaseinput.style.transition = "border 5ms ease-out";
-		releaseinput.style.borderColor = "red";
-		setTimeout(function(){
-			releaseinput.style.transition = "border 5000ms ease-out";
-			releaseinput.style.borderColor = "#fff";
-		}, 5000);
-		return;
-	}
-	var url = "/" + releaseinput.value + "/api/" + targetinput.value + "/";
-	location.href = url;
+    if(!targetinput.value) {
+        targetinput.style.transition = "border 5ms ease-out";
+        targetinput.style.borderColor = "red";
+        setTimeout(function(){
+            targetinput.style.transition = "border 5000ms ease-out";
+            targetinput.style.borderColor = "#fff";
+        }, 5000);
+        return;
+    }
+    if(!releaseinput.value) {
+        releaseinput.style.transition = "border 5ms ease-out";
+        releaseinput.style.borderColor = "red";
+        setTimeout(function(){
+            releaseinput.style.transition = "border 5000ms ease-out";
+            releaseinput.style.borderColor = "#fff";
+        }, 5000);
+        return;
+    }
+    var url = "/" + releaseinput.value + "/api/" + targetinput.value + "/";
+    location.href = url;
 }
 targetinput.addEventListener("input", function(event) {
-	var a, b, i, val = this.value;
-	closeAllLists();
-	if (!val) { return false;}
-	currentFocus = -1;
-	a = document.createElement("DIV");
-	a.setAttribute("id", this.id + "autocomplete-list");
-	a.setAttribute("class", "autocomplete-items");
-	this.parentNode.appendChild(a);
-	for (i = 0; i < devices.length; i++) {
-		var regex = RegExp(val.toLowerCase());
-		if (devices[i].toLowerCase().match(regex) != null) {
-			b = document.createElement("DIV");
-			b.innerHTML = devices[i].replace(regex, function(str) { return "<strong>" + str + "</strong>" })
-			b.innerHTML += "<input type='hidden' value='" + devices[i] + "'>";
-			b.addEventListener("click", function(event) {
-				targetinput.value = this.getElementsByTagName("input")[0].value;
-				closeAllLists();
-			});
-			a.appendChild(b);
-		}
-	}
+    var a, b, i, val = this.value;
+    closeAllLists();
+    if (!val) { return false;}
+    currentFocus = -1;
+    a = document.createElement("DIV");
+    a.setAttribute("id", this.id + "autocomplete-list");
+    a.setAttribute("class", "autocomplete-items");
+    this.parentNode.appendChild(a);
+    for (i = 0; i < devices.length; i++) {
+        var regex = RegExp(val.toLowerCase());
+        if (devices[i].toLowerCase().match(regex) != null) {
+            b = document.createElement("DIV");
+            b.innerHTML = devices[i].replace(regex, function(str) { return "<strong>" + str + "</strong>" })
+            b.innerHTML += "<input type='hidden' value='" + devices[i] + "'>";
+            b.addEventListener("click", function(event) {
+                targetinput.value = this.getElementsByTagName("input")[0].value;
+                closeAllLists();
+            });
+            a.appendChild(b);
+        }
+    }
 });
 targetinput.addEventListener("keydown", function(event) {
-	var list = document.getElementById(this.id + "autocomplete-list");
-	if (list) {
-		list = list.getElementsByTagName("div");
-	}
-	if (event.keyCode == 40) { // down key
-		currentFocus++;
-		makeItemActive(list);
-	} else if (event.keyCode == 38) { // up key
-		currentFocus--;
-		makeItemActive(list);
-	} else if (event.keyCode == 13) { // enter key
-		event.preventDefault();
-		if (currentFocus > -1) {
-			/*and simulate a click on the "active" item:*/
-			if (list) {
-				list[currentFocus].click();
-			}
-		}
-	}
+    var list = document.getElementById(this.id + "autocomplete-list");
+    if (list) {
+        list = list.getElementsByTagName("div");
+    }
+    if (event.keyCode == 40) { // down key
+        currentFocus++;
+        makeItemActive(list);
+    } else if (event.keyCode == 38) { // up key
+        currentFocus--;
+        makeItemActive(list);
+    } else if (event.keyCode == 13) { // enter key
+        event.preventDefault();
+        if (currentFocus > -1) {
+            /*and simulate a click on the "active" item:*/
+            if (list) {
+                list[currentFocus].click();
+            }
+        }
+    }
 });
 function removeActiveFromList(list) {
-	for (var i = 0; i < list.length; i++) {
-		list[i].classList.remove("autocomplete-active");
-	}
+    for (var i = 0; i < list.length; i++) {
+        list[i].classList.remove("autocomplete-active");
+    }
 }
 function makeItemActive(list) {
-	if (!list) return false;
-	removeActiveFromList(list);
-	if (currentFocus >= list.length) {
-		currentFocus = 0;
-	}
-	if (currentFocus < 0) {
-		currentFocus = (list.length - 1);
-	}
-	list[currentFocus].classList.add("autocomplete-active");
+    if (!list) return false;
+    removeActiveFromList(list);
+    if (currentFocus >= list.length) {
+        currentFocus = 0;
+    }
+    if (currentFocus < 0) {
+        currentFocus = (list.length - 1);
+    }
+    list[currentFocus].classList.add("autocomplete-active");
 }
 function closeAllLists(element) {
-	var items = document.getElementsByClassName("autocomplete-items");
-	for (var i = 0; i < items.length; i++) {
-		if (element != items[i] && element != targetinput) {
-			items[i].parentNode.removeChild(items[i]);
-		}
-	}
+    var items = document.getElementsByClassName("autocomplete-items");
+    for (var i = 0; i < items.length; i++) {
+        if (element != items[i] && element != targetinput) {
+            items[i].parentNode.removeChild(items[i]);
+        }
+    }
 }
 document.addEventListener("click", function (element) {
     closeAllLists(element.target);
