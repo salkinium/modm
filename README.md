@@ -70,7 +70,8 @@ git clone --recurse-submodules https://github.com/modm-io/modm.git
 
 ## Targets
 
-modm can generate code for <!--avrcount-->530<!--/avrcount--> AVR and <!--stmcount-->1959<!--/stmcount-->
+modm can generate code for <!--avrcount-->530<!--/avrcount--> AVR,
+<!--samcount-->167<!--/samcount--> SAM and <!--stmcount-->1959<!--/stmcount-->
 STM32 devices, however, there are different levels of support and testing.
 
 <center>
