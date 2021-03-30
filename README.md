@@ -43,7 +43,7 @@ back so everyone can benefit.
 Please clone modm recursively, you need all the submodules:
 
 ```sh
-git clone --recurse-submodules https://github.com/modm-io/modm.git
+git clone --recurse-submodules --jobs 8 https://github.com/modm-io/modm.git
 ```
 
 ## Features
