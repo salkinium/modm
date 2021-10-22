@@ -81,6 +81,11 @@
 	/// @note This memory location may not be DMA-able!
 	#define modm_fastdata
 
+	/// Places an array into the fastest accessible memory *with* DMA access:
+	/// data cache, core coupled memory or SRAM as fallback.
+	/// @note This memory location is DMA-able, but uninitialized!
+	#define modm_faststack
+
 	/// This branch is more likely to execute.
 	#define modm_likely(x) (x)
 
@@ -129,6 +134,7 @@
 	#define modm_fallthrough		__attribute__((fallthrough))
 	#define modm_noreturn			__attribute__((noreturn))
 	#define modm_warn_unused_result	__attribute__((warn_unused_result))
+	#define modm_naked				__attribute__((naked))
 
 	#ifdef MODM_COMPILER_MINGW
 	 	// FIXME: Windows Object Format PE does not support weak symbols
@@ -144,10 +150,12 @@
 	#	define modm_fastcode
 	#	define modm_ramcode
 	#	define modm_fastdata
+	#	define modm_faststack
 	#else
 	#	define modm_fastcode		modm_section(".fastcode")
 	#	define modm_ramcode			modm_fastcode
 	#	define modm_fastdata		modm_section(".fastdata")
+	#	define modm_faststack		modm_section(".faststack")
 	#endif
 
 	#ifdef __cplusplus
