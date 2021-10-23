@@ -280,7 +280,9 @@ TOTAL_STACK_SIZE   = MAIN_STACK_SIZE + PROCESS_STACK_SIZE;
 %% endmacro
 
 
-%% macro section_ram(memory, rom, sections_data=[], sections_bss=[])
+%% macro section_ram(memory, rom, table_copy, table_zero, sections_data=[], sections_bss=[])
+%% do table_copy.extend(sections_data)
+%% do table_zero.extend(sections_bss)
 	.data :
 	{
 		. = ALIGN(4);
@@ -288,6 +290,7 @@ TOTAL_STACK_SIZE   = MAIN_STACK_SIZE + PROCESS_STACK_SIZE;
 		__data_start = .;
 		*(.data .data.* .gnu.linkonce.d.*)
 		. = ALIGN(4);
+		__data_end = .;
 	} >{{memory}} AT >{{rom}}
 
 	%% for section in sections_data
@@ -300,7 +303,6 @@ TOTAL_STACK_SIZE   = MAIN_STACK_SIZE + PROCESS_STACK_SIZE;
 		__{{section}}_end = .;
 	} >{{memory}} AT >{{rom}}
 	%% endfor
-	__data_end = .;
 
 	.bss (NOLOAD) :
 	{
@@ -319,7 +321,6 @@ TOTAL_STACK_SIZE   = MAIN_STACK_SIZE + PROCESS_STACK_SIZE;
 		__{{section}}_end = .;
 	} >{{memory}}
 	%% endfor
-	__bss_end = .;
 
 	.noinit (NOLOAD) :
 	{
