@@ -29,4 +29,16 @@ public:
 
 	void
 	testYieldFromSubroutine();
+
+	void
+	testNonBlockingRecieve();
+
+	void
+	testBlockingRecieve();
+
+	void
+	testSemaphore();
+
+	void
+	testMutex();
 };

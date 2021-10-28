@@ -32,6 +32,11 @@ def build(env):
     env.copy("fiber.hpp")
     env.copy("scheduler.hpp")
 
+    env.copy("channel.hpp")
+    env.copy("waitable.hpp")
+    env.copy("semaphore.hpp")
+    env.copy("mutex.hpp")
+
     env.copy("context.h")
 
     core = env[":target"].get_driver("core")["type"]

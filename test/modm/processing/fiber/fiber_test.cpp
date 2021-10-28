@@ -119,3 +119,124 @@ FiberTest::testYieldFromSubroutine()
 	TEST_ASSERT_EQUALS(states[4], SUBROUTINE_END);
 	TEST_ASSERT_EQUALS(states[5], F3_END);
 }
+
+namespace
+{
+
+modm::fiber::Channel<int> channel;
+
+void
+consumer()
+{
+	ADD_STATE(CONSUMER_START);
+	TEST_ASSERT_EQUALS(channel.receive(), 123);
+	ADD_STATE(CONSUMER_END);
+}
+
+void
+producer()
+{
+	ADD_STATE(PRODUCER_START);
+	channel.send(123);
+	ADD_STATE(PRODUCER_END);
+}
+
+}  // namespace
+
+void
+FiberTest::testBlockingRecieve()
+{
+	states_pos = 0;
+	modm::Fiber fiber1(stack1, consumer), fiber2(stack2, producer);
+	modm::fiber::Scheduler::run();
+	TEST_ASSERT_EQUALS(states_pos, 4u);
+	TEST_ASSERT_EQUALS(states[0], CONSUMER_START);
+	TEST_ASSERT_EQUALS(states[1], PRODUCER_START);
+	TEST_ASSERT_EQUALS(states[2], CONSUMER_END);
+	TEST_ASSERT_EQUALS(states[3], PRODUCER_END);
+}
+
+void
+FiberTest::testNonBlockingRecieve()
+{
+	states_pos = 0;
+	modm::Fiber fiber1(stack1, producer), fiber2(stack2, consumer);
+	modm::fiber::Scheduler::run();
+	TEST_ASSERT_EQUALS(states_pos, 4u);
+	TEST_ASSERT_EQUALS(states[0], PRODUCER_START);
+	TEST_ASSERT_EQUALS(states[1], PRODUCER_END);
+	TEST_ASSERT_EQUALS(states[2], CONSUMER_START);
+	TEST_ASSERT_EQUALS(states[3], CONSUMER_END);
+}
+
+namespace
+{
+
+modm::fiber::Semaphore semaphore(1);
+
+void
+semaphoreProducer()
+{
+	ADD_STATE(PRODUCER_START);
+	semaphore.acquire();
+	ADD_STATE(PRODUCER_END);
+}
+
+void
+semaphoreConsumer()
+{
+	ADD_STATE(CONSUMER_START);
+	semaphore.release();
+	ADD_STATE(CONSUMER_END);
+}
+
+}  // namespace
+
+void
+FiberTest::testSemaphore()
+{
+	states_pos = 0;
+	modm::Fiber fiber1(stack1, semaphoreProducer), fiber2(stack2, semaphoreConsumer);
+	modm::fiber::Scheduler::run();
+	TEST_ASSERT_EQUALS(states_pos, 4u);
+	TEST_ASSERT_EQUALS(states[0], PRODUCER_START);
+	TEST_ASSERT_EQUALS(states[1], PRODUCER_END);
+	TEST_ASSERT_EQUALS(states[2], CONSUMER_START);
+	TEST_ASSERT_EQUALS(states[3], CONSUMER_END);
+}
+
+namespace
+{
+
+modm::fiber::Mutex mutex;
+
+void
+mutexProducer()
+{
+	ADD_STATE(PRODUCER_START);
+	mutex.acquire();
+	ADD_STATE(PRODUCER_END);
+}
+
+void
+mutexConsumer()
+{
+	ADD_STATE(CONSUMER_START);
+	mutex.release();
+	ADD_STATE(CONSUMER_END);
+}
+
+}  // namespace
+
+void
+FiberTest::testMutex()
+{
+	states_pos = 0;
+	modm::Fiber fiber1(stack1, mutexProducer), fiber2(stack2, mutexConsumer);
+	modm::fiber::Scheduler::run();
+	TEST_ASSERT_EQUALS(states_pos, 4u);
+	TEST_ASSERT_EQUALS(states[0], PRODUCER_START);
+	TEST_ASSERT_EQUALS(states[1], PRODUCER_END);
+	TEST_ASSERT_EQUALS(states[2], CONSUMER_START);
+	TEST_ASSERT_EQUALS(states[3], CONSUMER_END);
+}

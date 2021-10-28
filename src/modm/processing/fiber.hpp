@@ -11,3 +11,7 @@
 
 #include "fiber/fiber.hpp"
 #include "fiber/scheduler.hpp"
+
+#include "fiber/channel.hpp"
+#include "fiber/semaphore.hpp"
+#include "fiber/mutex.hpp"
