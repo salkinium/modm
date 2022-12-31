@@ -20,10 +20,15 @@ import lbuild
 import random
 import tempfile
 import argparse
+import platform
 import subprocess
 import multiprocessing
 from pathlib import Path
 from collections import defaultdict
+
+# Set the process create method to fork rather than spawn
+if platform.system() != "Windows":
+    _ = multiprocessing.get_context("fork")
 
 def repopath(path):
     return Path(__file__).absolute().parents[2] / path

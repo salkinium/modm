@@ -16,6 +16,11 @@ import subprocess
 import multiprocessing
 from pathlib import Path
 
+# Set the process create method to fork rather than spawn
+if platform.system() != "Windows":
+    _ = multiprocessing.get_context("fork")
+
+
 is_running_in_ci = (os.getenv("CIRCLECI") is not None or
                     os.getenv("TRAVIS") is not None or
                     os.getenv("GITHUB_ACTIONS") is not None)
@@ -110,6 +115,7 @@ def compile_examples(paths, jobs, split, part):
     # first generate all projects
     with multiprocessing.Pool(jobs) as pool:
         projects = pool.map(generate, projects)
+    # projects = [generate(p) for p in projects]
     results += projects.count(None)
 
     # Filter projects for successful generation
@@ -117,6 +123,7 @@ def compile_examples(paths, jobs, split, part):
     # Then build the successfully generated ones
     with multiprocessing.Pool(jobs) as pool:
         projects = pool.map(build, projects)
+    # projects = [build(p) for p in projects]
     results += projects.count(None)
 
     # Filter projects for successful compilation and runablity
@@ -124,6 +131,7 @@ def compile_examples(paths, jobs, split, part):
     # Then run the successfully compiled ones
     with multiprocessing.Pool(jobs) as pool:
         projects = pool.map(run, projects)
+    # projects = [run(p) for p in projects]
     results += projects.count(None)
 
     return results
