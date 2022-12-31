@@ -120,6 +120,10 @@ set({{ name | upper }}{{ "_" ~ (profile | upper) if profile | length else "" }}
 {{ generate_flags("ccwarn") }}
 {{ generate_flags("cxxwarn") }}
 
+if (CMAKE_CXX_COMPILER_VERSION VERSION_GREATER 12)
+  set(LINKFLAGS "${LINKFLAGS} -Wl,--no-warn-rwx-segment")
+endif()
+
   target_compile_definitions(${target_options} INTERFACE
     ${CPPDEFINES}
     $<$<CONFIG:MinSizeRel>:${CPPDEFINES_RELEASE}>

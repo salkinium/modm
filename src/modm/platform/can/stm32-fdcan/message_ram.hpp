@@ -16,6 +16,7 @@
 #include <cstdint>
 #include <concepts>
 #include <span>
+#include <tuple>
 
 #include <modm/math/utils/bit_constants.hpp>
 #include <modm/architecture/interface/register.hpp>
