@@ -31,7 +31,7 @@ namespace modm
 	class CommunicatingViewStack : public ViewStack<Allocator>
 	{
 	public:
-		CommunicatingViewStack(modm::ColorGraphicDisplay* display, xpcc::Communicator* communicator) :
+		CommunicatingViewStack(modm::GraphicDisplay* display, xpcc::Communicator* communicator) :
 			ViewStack<Allocator>(display),
 			communicator(communicator)
 		{

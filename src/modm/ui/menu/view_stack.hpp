@@ -41,7 +41,7 @@ namespace modm
 	class ViewStack
 	{
 	public:
-		ViewStack(modm::ColorGraphicDisplay* display, const Allocator allocator = Allocator()) :
+		ViewStack(modm::GraphicDisplay* display, const Allocator allocator = Allocator()) :
 			display(display),
 			allocator(allocator)
 		{
@@ -82,7 +82,7 @@ namespace modm
 		/**
 		 * @brief getDisplay access underlying GraphicDisplay
 		 */
-		inline modm::ColorGraphicDisplay&
+		inline modm::GraphicDisplay&
 		getDisplay()
 		{
 			return *this->display;
@@ -148,7 +148,7 @@ namespace modm
 		}
 
 	protected:
-		modm::ColorGraphicDisplay* display;
+		modm::GraphicDisplay* display;
 		modm::Stack< modm::AbstractView<Allocator>* , modm::LinkedList< modm::AbstractView<Allocator>* > > stack;
 		Allocator allocator;
 	};
