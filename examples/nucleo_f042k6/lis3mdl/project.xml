@@ -1,8 +1,0 @@
-<library>
-  <extends>modm:nucleo-f042k6</extends>
-  <modules>
-    <module>modm:build:scons</module>
-    <module>modm:driver:lis3mdl</module>
-    <module>modm:platform:i2c:1</module>
-  </modules>
-</library>
