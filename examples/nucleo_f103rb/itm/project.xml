@@ -3,6 +3,8 @@
   <options>
     <option name="modm:platform:itm:buffer.tx">250</option>
   </options>
+  <!-- This just tests the lbuild outpath, don't copy this! -->
+  <outpath>../generated/blink</outpath>
   <modules>
     <module>modm:build:scons</module>
     <module>modm:build:make</module>
