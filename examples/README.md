@@ -93,7 +93,6 @@ Have a look at the [build system documentation][build_docs] and the
 - ui
   - game_of_life
   - graphics
-  - lvgl
 - driver
   - can
   - i2c
@@ -103,7 +102,6 @@ Have a look at the [build system documentation][build_docs] and the
   - amnb
   - ethernet_freertos
   - nrf24
-  - ros
   - sab
   - xpcc
 - ext
@@ -114,6 +112,8 @@ Have a look at the [build system documentation][build_docs] and the
   - usb
   - usb_dfu
   - usbfatfs
+  - lvgl
+  - ros
 - board
   - super custom board-specific examples
   - ideally we get rid of this section
