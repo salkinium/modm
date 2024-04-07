@@ -1,7 +1,6 @@
 <library>
   <extends>modm:nucleo-l476rg</extends>
   <options>
-    <option name="modm:build:build.path">../../../../build/generic/ros/sub_pub</option>
     <option name="modm:platform:uart:2:buffer.tx">512</option>
     <option name="modm:platform:uart:2:buffer.rx">512</option>
   </options>

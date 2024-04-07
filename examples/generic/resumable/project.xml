@@ -1,8 +1,5 @@
 <library>
   <extends>modm:nucleo-l476rg</extends>
-  <options>
-    <option name="modm:build:build.path">../../../build/generic/resumable</option>
-  </options>
   <modules>
     <module>modm:architecture:delay</module>
     <module>modm:processing:protothread</module>
