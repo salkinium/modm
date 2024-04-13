@@ -198,7 +198,7 @@ protected:
 	{
 %% if with_heap
 		if (isLarge() and storage.large.data) {
-			if (*storage.large.data <= 1) delete storage.large.data;
+			if (*storage.large.data <= 1) delete[] storage.large.data;
 			else (*storage.large.data)--;
 			storage.large.data = nullptr;
 		}
