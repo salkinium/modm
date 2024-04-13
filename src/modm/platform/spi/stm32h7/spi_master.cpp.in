@@ -25,12 +25,12 @@ SpiMaster{{ id }}::transfer(uint8_t data)
 {
 %% if use_fiber
 	while (Hal::isTxFifoFull())
-		modm::fiber::yield();
+		modm::this_fiber::yield();
 
 	Hal::write(data);
 
 	while (!Hal::isRxDataAvailable())
-		modm::fiber::yield();
+		modm::this_fiber::yield();
 
 	return Hal::read();
 %% else
@@ -83,7 +83,7 @@ SpiMaster{{ id }}::transfer(
 			++rxIndex;
 		}
 		if (rxIndex < length) {
-			modm::fiber::yield();
+			modm::this_fiber::yield();
 		}
 	}
 %% else

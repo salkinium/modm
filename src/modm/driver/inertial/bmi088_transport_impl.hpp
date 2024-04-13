@@ -57,7 +57,7 @@ Bmi088SpiTransport<SpiMaster, AccCs, GyroCs>::readRegisters(uint8_t startReg,
 	}
 
 	while (!this->acquireMaster()) {
-		modm::fiber::yield();
+		modm::this_fiber::yield();
 	}
 	Cs::reset();
 
@@ -95,7 +95,7 @@ bool
 Bmi088SpiTransport<SpiMaster, AccCs, GyroCs>::writeRegister(uint8_t reg, uint8_t data)
 {
 	while (!this->acquireMaster()) {
-		modm::fiber::yield();
+		modm::this_fiber::yield();
 	}
 	Cs::reset();
 

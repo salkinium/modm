@@ -319,7 +319,7 @@ modm_faststack modm::Fiber<> blinkyFiber([]()
     while(true)
     {
         Board::Leds::toggle();
-        modm::fiber::sleep(200ms);
+        modm::this_fiber::sleep_for(200ms);
     }
 });
 

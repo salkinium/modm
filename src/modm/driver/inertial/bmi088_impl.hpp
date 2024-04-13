@@ -225,7 +225,7 @@ void
 Bmi088<Transport>::timerWait()
 {
 	while (timer_.isArmed()) {
-		modm::fiber::yield();
+		modm::this_fiber::yield();
 	}
 }
 
