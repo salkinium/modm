@@ -18,9 +18,12 @@
 %% if multicore
 #include <modm/platform/core/multicore.hpp>
 %% endif
+%% if core.startswith("cortex-m")
+#include <modm/platform/device.hpp>
+%% endif
 
 // forward declaration
-namespace modm::this_fiber { void yield(); }
+namespace modm::this_fiber { void yield(); modm::fiber::id get_id(); }
 
 namespace modm::fiber
 {
@@ -37,12 +40,23 @@ class Scheduler
 {
 	friend class Task;
 	friend void modm::this_fiber::yield();
+	friend modm::fiber::id modm::this_fiber::get_id();
 	Scheduler(const Scheduler&) = delete;
 	Scheduler& operator=(const Scheduler&) = delete;
 
 protected:
 	Task* last{nullptr};
 	Task* current{nullptr};
+
+	uintptr_t
+	get_id() const
+	{
+%% if core.startswith("cortex-m")
+		// Ensure that calling this in an interrupt gives a different ID
+		if (const auto irq = __get_IPSR(); irq) return irq;
+%% endif
+		return reinterpret_cast<uintptr_t>(current);
+	}
 
 	void
 	runNext(Task* task)

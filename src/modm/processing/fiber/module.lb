@@ -27,6 +27,7 @@ def prepare(module, options):
         EnvironmentQuery(name="__enabled", factory=is_enabled))
 
     core = options[":target"].get_driver("core")["type"]
+    if core.startswith("cortex-m"): module.depends(":cmsis:device")
     return (core.startswith("cortex-m") or core.startswith("avr") or
             "x86_64" in core or "arm64" in core)
 

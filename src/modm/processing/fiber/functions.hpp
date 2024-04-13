@@ -42,6 +42,13 @@ yield()
 	modm::fiber::Scheduler::instance().yield();
 }
 
+/// Returns the id of the current fiber
+inline modm::fiber::id
+get_id()
+{
+	return modm::fiber::Scheduler::instance().get_id();
+}
+
 /**
  * Yields the current fiber until the time interval has elapsed.
  * This functionality is a convenience wrapper around `modm::Timeout`
