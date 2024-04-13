@@ -50,6 +50,14 @@ namespace unittest
 		nextTestSuite(modm::accessor::Flash<char> name);
 
 		/**
+		 * \brief	Switch to the next test function
+		 *
+		 * \param	name	Name of the test function
+		 */
+		void
+		nextTestFunction(modm::accessor::Flash<char> name);
+
+		/**
 		 * \brief	Report a passed test
 		 *
 		 * Doesn't generate any output, but increments the number of
@@ -80,6 +88,7 @@ namespace unittest
 	private:
 		modm::IOStream outputStream;
 		modm::accessor::Flash<char> testName;
+		modm::accessor::Flash<char> testFunction;
 
 		int_fast16_t testsPassed;
 		int_fast16_t testsFailed;

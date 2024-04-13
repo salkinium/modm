@@ -41,7 +41,7 @@ from . import find_files
 
 
 # -----------------------------------------------------------------------------
-TEMPLATE_UNITTEST = """\
+TEMPLATE_UNITTEST = r"""\
 #include <unittest/reporter.hpp>
 
 {% for test in tests %}
@@ -50,27 +50,35 @@ TEMPLATE_UNITTEST = """\
 
 namespace
 {
-{% for test in tests %}
-FLASH_STORAGE_STRING({{test.instance}}Name) = "{{test.file}}";
-{% endfor %}
+{% for test in tests -%}
+FLASH_STORAGE_STRING({{test.instance}}Name) = "{{test.file[:-5]}}";
+{%- if functions %}
+{% for test_case in test.test_cases -%}
+FLASH_STORAGE_STRING({{test.instance}}_{{test_case}}Name) = "{{test_case[4:]}}";
+{% endfor -%}
+{% endif -%}
+{% endfor -%}
 }
 
 int run_modm_unit_test()
 {
     using namespace modm::accessor;
 
-{% for test in tests %}
+{% for test in tests -%}
     unittest::reporter.nextTestSuite(asFlash({{test.instance}}Name));
     {
         {{test.class}} {{test.instance}};
-    {% for test_case in test.test_cases %}
+    {%- for test_case in test.test_cases %}
 
+    {% if functions -%}
+        unittest::reporter.nextTestFunction(asFlash({{test.instance}}_{{test_case}}Name));
+    {% endif -%}
         {{test.instance}}.setUp();
         {{test.instance}}.{{test_case}}();
         {{test.instance}}.tearDown();
-    {% endfor %}
+    {% endfor -%}
     }
-{% endfor %}
+{%- endfor %}
 
     return unittest::reporter.printSummary();
 }
@@ -106,9 +114,10 @@ def extract_tests(headers):
     return sorted(tests, key=lambda t: t["file"])
 
 
-def render_runner(headers, destination=None):
+def render_runner(headers, destination=None, functions=False):
     tests = extract_tests(headers)
-    content = Environment().from_string(TEMPLATE_UNITTEST).render({"tests": tests})
+    content = Environment().from_string(TEMPLATE_UNITTEST)
+    content = content.render({"tests": tests, "functions": functions})
 
     if destination is not None:
         Path(destination).write_text(content)
@@ -128,6 +137,12 @@ if __name__ == "__main__":
             dest="destination",
             default="unittest_runner.cpp",
             help="Generated runner file.")
+    parser.add_argument(
+            "-fn", "--with-function-names",
+            dest="functions",
+            default=False,
+            action="store_true",
+            help="Generate with test function name.")
 
     args = parser.parse_args()
     headers = find_files.scan(args.path, ["_test"+h for h in find_files.HEADER])

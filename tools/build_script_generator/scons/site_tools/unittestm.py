@@ -26,7 +26,8 @@ from modm_tools import unit_test
 # -----------------------------------------------------------------------------
 def unittest_action(target, source, env):
 	unit_test.render_runner(headers=(str(s) for s in source),
-	                       destination=target[0].abspath)
+	                       destination=target[0].abspath,
+	                       functions="hosted" in env.get("CONFIG_DEVICE_NAME"))
 	return 0
 
 def unittest_emitter(target, source, env):
