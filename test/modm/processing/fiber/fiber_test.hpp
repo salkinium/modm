@@ -37,4 +37,7 @@ public:
 
 	void
 	testSleepUntil();
+
+	void
+	testStopToken();
 };

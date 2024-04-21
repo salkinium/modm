@@ -58,6 +58,16 @@ protected:
 		return reinterpret_cast<uintptr_t>(current);
 	}
 
+	static bool
+	isInsideInterrupt()
+	{
+%% if core.startswith("cortex-m")
+		return __get_IPSR();
+%% else
+		return false;
+%% endif
+	}
+
 	void
 	runNext(Task* task)
 	{
@@ -161,6 +171,12 @@ protected:
 
 public:
 	constexpr Scheduler() = default;
+
+	static constexpr unsigned int
+	hardware_concurrency()
+	{
+		return {{num_cores}};
+	}
 
 	/// Runs the currently active scheduler.
 	static void
