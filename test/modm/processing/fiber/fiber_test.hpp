@@ -17,10 +17,6 @@
 class FiberTest : public unittest::TestSuite
 {
 public:
-
-	void
-	subroutine();
-
 	void
 	testOneFiber();
 
@@ -29,4 +25,16 @@ public:
 
 	void
 	testYieldFromSubroutine();
+
+	void
+	testPollFor();
+
+	void
+	testPollUntil();
+
+	void
+	testSleepFor();
+
+	void
+	testSleepUntil();
 };

@@ -15,6 +15,7 @@
 
 #include "scheduler.hpp"
 #include <modm/processing/timer.hpp>
+#include <type_traits>
 
 namespace modm::this_fiber
 {
@@ -49,30 +50,100 @@ get_id()
 	return modm::fiber::Scheduler::instance().get_id();
 }
 
+/// Yields the current fiber until `bool condition()` returns true.
+template< class Function >
+requires requires { std::is_invocable_r_v<bool, Function, void>; }
+void
+poll(Function &&condition)
+{
+	while(not std::forward<Function>(condition)())
+		modm::this_fiber::yield();
+}
+
 /**
- * Yields the current fiber until the time interval has elapsed.
- * This functionality is a convenience wrapper around `modm::Timeout`
- * if interval ≥1ms or `modm::PreciseTimeout` if interval ≥1µs.
- * For nanosecond delays, use `modm::delay(ns)`.
+ * Yields the current fiber until `bool condition()` returns true or the time
+ * duration has elapsed.
+ *
+ * @returns `true` if the condition was met, `false` if the time duration has
+ *          elapsed.
  *
  * @note Due to the overhead of `yield()` and the scheduling other fibers, the
- *       sleep interval may be longer without any guarantee of an upper limit.
+ *       sleep duration may be longer without any guarantee of an upper limit.
  */
-template< typename Rep, typename Period >
-void
-sleep_for(std::chrono::duration<Rep, Period> interval)
+template< class Rep, class Period, class Function >
+requires requires { std::is_invocable_r_v<bool, Function, void>; }
+[[nodiscard]]
+bool
+poll_for(std::chrono::duration<Rep, Period> sleep_duration, Function &&condition)
 {
 	// Only choose the microsecond clock if necessary
-	using TimeoutType = std::conditional_t<
+	using Clock = std::conditional_t<
 		std::is_convertible_v<std::chrono::duration<Rep, Period>,
 							  std::chrono::duration<Rep, std::milli>>,
-		modm::GenericTimeout< modm::chrono::milli_clock, modm::chrono::milli_clock::duration>,
-		modm::GenericTimeout< modm::chrono::micro_clock, modm::chrono::micro_clock::duration>
-	>;
+		modm::chrono::milli_clock, modm::chrono::micro_clock>;
 
-	TimeoutType timeout(interval);
-	while(not timeout.isExpired())
-		modm::fiber::yield();
+	const auto start = Clock::now();
+	do {
+		if (std::forward<Function>(condition)()) return true;
+		modm::this_fiber::yield();
+	}
+	while((Clock::now() - start) <= sleep_duration);
+	return false;
+}
+
+/**
+ * Yields the current fiber until `bool condition()` returns true or the sleep
+ * time has been reached.
+ *
+ * @returns `true` if the condition was met, `false` if the sleep time has
+ *          elapsed.
+ *
+ * @note Due to the overhead of `yield()` and the scheduling other fibers, the
+ *       sleep duration may be longer without any guarantee of an upper limit.
+ */
+template< class Clock, class Duration, class Function >
+requires requires { std::is_invocable_r_v<bool, Function, void>; }
+[[nodiscard]]
+bool
+poll_until(std::chrono::time_point<Clock, Duration> sleep_time, Function &&condition)
+{
+	const auto start = Clock::now();
+	const auto sleep_duration = sleep_time - start;
+	do {
+		if (std::forward<Function>(condition)()) return true;
+		modm::this_fiber::yield();
+	}
+	while((Clock::now() - start) <= sleep_duration);
+	return false;
+}
+
+/**
+ * Yields the current fiber until the time duration has elapsed.
+ *
+ * @note For nanosecond delays, use `modm::delay(ns)`.
+ * @note Due to the overhead of `yield()` and the scheduling other fibers, the
+ *       sleep duration may be longer without any guarantee of an upper limit.
+ * @see https://en.cppreference.com/w/cpp/thread/sleep_for
+ */
+template< class Rep, class Period >
+void
+sleep_for(std::chrono::duration<Rep, Period> sleep_duration)
+{
+	(void) poll_for(sleep_duration, []{ return false; });
+}
+
+/**
+ * Yields the current fiber until the sleep time has been reached.
+ *
+ * @note Due to the overhead of `yield()` and the scheduling other fibers, the
+ *       sleep duration may be longer without any guarantee of an upper limit.
+ * @see https://en.cppreference.com/w/cpp/thread/sleep_until
+ */
+template< class Clock, class Duration >
+void
+sleep_until(std::chrono::time_point<Clock, Duration> sleep_time)
+{
+	(void) poll_until(sleep_time, []{ return false; });
 }
 
 /// @}
