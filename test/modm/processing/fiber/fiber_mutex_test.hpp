@@ -14,33 +14,21 @@
 #include <unittest/testsuite.hpp>
 
 /// @ingroup modm_test_test_architecture
-class FiberTest : public unittest::TestSuite
+class FiberMutexTest : public unittest::TestSuite
 {
 public:
 	void
 	setUp();
 
 	void
-	testOneFiber();
+	testMutex();
 
 	void
-	testTwoFibers();
+	testRecursiveMutex();
 
 	void
-	testYieldFromSubroutine();
+	testSharedMutex();
 
 	void
-	testPollFor();
-
-	void
-	testPollUntil();
-
-	void
-	testSleepFor();
-
-	void
-	testSleepUntil();
-
-	void
-	testStopToken();
+	testCallOnce();
 };

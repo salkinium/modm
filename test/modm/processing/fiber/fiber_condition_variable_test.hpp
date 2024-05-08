@@ -14,33 +14,18 @@
 #include <unittest/testsuite.hpp>
 
 /// @ingroup modm_test_test_architecture
-class FiberTest : public unittest::TestSuite
+class ConditionVariableTest : public unittest::TestSuite
 {
 public:
 	void
 	setUp();
 
 	void
-	testOneFiber();
+	testConditionVariableWait();
 
 	void
-	testTwoFibers();
+	testConditionVariableWaitPredicate();
 
 	void
-	testYieldFromSubroutine();
-
-	void
-	testPollFor();
-
-	void
-	testPollUntil();
-
-	void
-	testSleepFor();
-
-	void
-	testSleepUntil();
-
-	void
-	testStopToken();
+	testConditionVariableWaitStopTokenPredicate();
 };

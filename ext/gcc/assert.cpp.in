@@ -76,5 +76,9 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 	void
 	__throw_bad_any_cast()
 	{ __modm_stdcpp_failure("bad_any_cast"); }
+
+	void
+	__throw_system_error(int errc __attribute__((unused)))
+	{ __modm_stdcpp_failure("system_error"); }
 _GLIBCXX_END_NAMESPACE_VERSION
 } // namespace

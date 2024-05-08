@@ -14,33 +14,12 @@
 #include <unittest/testsuite.hpp>
 
 /// @ingroup modm_test_test_architecture
-class FiberTest : public unittest::TestSuite
+class FiberSemaphoreTest : public unittest::TestSuite
 {
 public:
 	void
 	setUp();
 
 	void
-	testOneFiber();
-
-	void
-	testTwoFibers();
-
-	void
-	testYieldFromSubroutine();
-
-	void
-	testPollFor();
-
-	void
-	testPollUntil();
-
-	void
-	testSleepFor();
-
-	void
-	testSleepUntil();
-
-	void
-	testStopToken();
+	testCountingSemaphore();
 };

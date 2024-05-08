@@ -14,33 +14,30 @@
 #include <unittest/testsuite.hpp>
 
 /// @ingroup modm_test_test_architecture
-class FiberTest : public unittest::TestSuite
+class LatchBarrierTest : public unittest::TestSuite
 {
 public:
 	void
 	setUp();
 
 	void
-	testOneFiber();
+	testLatch0();
 
 	void
-	testTwoFibers();
+	testLatch1();
 
 	void
-	testYieldFromSubroutine();
+	testLatch2();
 
 	void
-	testPollFor();
+	testLatch10();
 
 	void
-	testPollUntil();
+	testLatchWait();
 
 	void
-	testSleepFor();
+	testBarrier();
 
 	void
-	testSleepUntil();
-
-	void
-	testStopToken();
+	testBarrierWait();
 };
