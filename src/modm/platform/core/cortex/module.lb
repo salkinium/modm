@@ -23,8 +23,10 @@ def common_vector_table(env):
 
       - `vector_table`: [position] = Full vector name (ie. *with* `_Handler` or `_IRQHandler` suffix)
       - `vector_table_location`: rom or ram
+      - `vector_table_size`: in Bytes
       - `highest_irq`: highest IRQ number + 1
       - `core`: cortex-m{0,3,4,7}{,+,f,fd}
+      - `exception_frame_size`: in Bytes.
 
     The system vectors start at -16, so you must add 16 to `highest_irq` to get
     the total number of vectors in the table!
@@ -57,12 +59,14 @@ def common_vector_table(env):
         interrupts[int(vector["position"])] = vector["name"] + "_IRQHandler"
 
     highest_irq = max(interrupts.keys()) + 1
+    with_fpu = env.get("float-abi", "soft") != "soft"
     properties = {
         "core": core,
         "highest_irq": highest_irq,
         "vector_table_location": common_vector_table_location(env),
         "vector_table": interrupts,
         "vector_table_size": (16 + highest_irq) * 4,
+        "exception_frame_size": 0x6C if with_fpu else 0x20
     }
     return properties
 
@@ -333,6 +337,7 @@ def build(env):
         "with_assert": env.has_module(":architecture:assert"),
         "with_fpu": env.get("float-abi", "soft") != "soft",
         "with_multicore": env.has_module(":platform:multicore"),
+        "with_msplim": sum(c.isnumeric() for c in env.substitutions["core"]) == 2,
     })
     env.outbasepath = "modm/src/modm/platform/core"
 

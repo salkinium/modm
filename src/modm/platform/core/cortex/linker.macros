@@ -42,6 +42,7 @@ __{{memory.name}}_end = ORIGIN({{memory.name|upper}}) + LENGTH({{memory.name|upp
 	%#
 
 MAIN_STACK_SIZE = {{ options[":platform:cortex-m:main_stack_size"] }};
+EXCEPTION_FRAME_SIZE = {{ exception_frame_size }};
 %% endmacro
 
 
@@ -78,6 +79,9 @@ MAIN_STACK_SIZE = {{ options[":platform:cortex-m:main_stack_size"] }};
 		. += {{start}};
 	%% endif
 		__stack{{suffix}}_start = .;
+		__main{{suffix}}_stack_bottom = .;
+		/* main stack must fit one entire exception after the limit */
+		__main{{suffix}}_stack_limit = . + EXCEPTION_FRAME_SIZE;
 
 		. += MAIN_STACK_SIZE;
 		. = ALIGN(8);

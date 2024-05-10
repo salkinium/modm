@@ -19,6 +19,10 @@ Reset_Handler:
 	// Some bootloaders do not reset the stack pointer back to the VTOR entry
 	ldr r0,=__main_stack_top
 	mov sp,r0
+%% if with_msplim
+	ldr r0,=__main_stack_limit
+	msr msplim,r0
+%% endif
 %% if with_fpu
 	// Enable FPU early so the compiler may use FPU registers for copying
 	// SCB->CPACR = ((3UL << 10*2) | (3UL << 11*2));
