@@ -471,11 +471,9 @@ modm::platform::Fdcan{{ id }}::getMessage(can::Message& message, uint8_t *filter
 %% else
 	if (rxFifo0HasMessage()) {
 		readMsg(message, 0, filter_id, timestamp);
-		releaseRxFifo0Message();
 		return true;
 	} else if (rxFifo1HasMessage()) {
 		readMsg(message, 1, filter_id, timestamp);
-		releaseRxFifo1Message();
 		return true;
 	}
 	return false;
