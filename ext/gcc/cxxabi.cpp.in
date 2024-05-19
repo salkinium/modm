@@ -27,6 +27,9 @@ void __cxa_deleted_virtual()
 
 %% if with_threadsafe_statics
 #include <atomic>
+%% if with_fibers
+#include <modm/processing/fiber.hpp>
+%% endif
 %% if is_avr
 %#
 // Even thought the actual guard size is uint64_t on AVR, we only need to access
@@ -71,6 +74,10 @@ __cxa_guard_acquire(guard_type *guard)
 			// We got called from inside an interrupt, but we cannot yield back
 			modm_assert(not is_in_irq, "stat.rec",
 					"Recursive initialization of a function static!", guard);
+%% if with_fibers
+			// we're not in an interrupt, try to yield back to the initializing fiber
+			modm::this_fiber::yield();
+%% endif
 		}
 		value = UNINITIALIZED;
 	}

@@ -92,6 +92,7 @@ def build(env):
         "with_threadsafe_statics": with_threadsafe_statics,
         "with_memory_traits": env.has_module(":architecture:memory"),
         "with_heap": env.has_module(":platform:heap"),
+        "with_fibers": env.has_module(":processing:fiber"),
         "is_avr": is_avr,
         "is_cortex_m": is_cortex_m,
     }

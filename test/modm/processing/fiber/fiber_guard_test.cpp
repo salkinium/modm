@@ -9,9 +9,9 @@
  */
 // ----------------------------------------------------------------------------
 
-#include "cxa_guard_test.hpp"
+#include "fiber_guard_test.hpp"
+#include "shared.hpp"
 #include <modm/architecture/detect.hpp>
-
 
 extern "C"
 {
@@ -26,65 +26,78 @@ int __cxa_guard_acquire(guard_t*);
 void __cxa_guard_release(guard_t*);
 void __cxa_guard_abort(guard_t*);
 
+static guard_t guard{0};
+
+}
+
+void
+FiberGuardTest::setUp()
+{
+	state = 0;
+}
+
+// ================================== GUARD ===================================
+static void
+f1()
+{
+	TEST_ASSERT_EQUALS(state++, 0u);
+	TEST_ASSERT_EQUALS(guard, guard_t(0));
+
+	TEST_ASSERT_EQUALS(__cxa_guard_acquire(&guard), 1);
+	TEST_ASSERT_EQUALS(guard, guard_t(0x10));
+	// now while initializing yield to another fiber
+	modm::this_fiber::yield(); // goto 1
+
+	TEST_ASSERT_EQUALS(state++, 2u);
+	__cxa_guard_release(&guard);
+	TEST_ASSERT_EQUALS(guard, guard_t(1));
+}
+
+static void
+f2()
+{
+	TEST_ASSERT_EQUALS(state++, 1u);
+	TEST_ASSERT_EQUALS(guard, guard_t(0x10));
+	TEST_ASSERT_EQUALS(__cxa_guard_acquire(&guard), 0); // goto 2
+
+	TEST_ASSERT_EQUALS(state++, 3u);
+	TEST_ASSERT_EQUALS(guard, guard_t(1));
 }
 
 
-namespace
+void
+FiberGuardTest::testGuard()
 {
-	guard_t guard{0};
+#ifndef MODM_OS_HOSTED
+	modm::fiber::Task fiber1(stack1, f1), fiber2(stack2, f2);
+	modm::fiber::Scheduler::run();
+#endif
+}
 
-	uint8_t constructor_calls{0};
-	struct StaticClass
+// =============================== CONSTRUCTOR ================================
+static uint8_t constructor_calls{0};
+struct StaticClass
+{
+	uint8_t counter{0};
+	StaticClass()
 	{
-		uint8_t counter{0};
-		StaticClass()
-		{
-			constructor_calls++;
-		}
-
-		void increment()
-		{
-			counter++;
-		}
-	};
-
-	StaticClass& instance()
-	{
-		static StaticClass obj;
-		return obj;
+		constructor_calls++;
 	}
-}
 
-void
-CxaGuardTest::testGuard()
+	void increment()
+	{
+		counter++;
+	}
+};
+
+static StaticClass& instance()
 {
-	TEST_ASSERT_EQUALS(guard, guard_t(0));
-
-	TEST_ASSERT_EQUALS(__cxa_guard_acquire(&guard), 1);
-#ifndef MODM_OS_HOSTED
-	TEST_ASSERT_EQUALS(guard, guard_t(0x10));
-#endif
-
-	__cxa_guard_abort(&guard);
-	TEST_ASSERT_EQUALS(guard, guard_t(0));
-
-	TEST_ASSERT_EQUALS(__cxa_guard_acquire(&guard), 1);
-#ifndef MODM_OS_HOSTED
-	TEST_ASSERT_EQUALS(guard, guard_t(0x10));
-#endif
-
-	__cxa_guard_release(&guard);
-	TEST_ASSERT_EQUALS(guard, guard_t(1));
-
-	TEST_ASSERT_EQUALS(__cxa_guard_acquire(&guard), 0);
-	TEST_ASSERT_EQUALS(guard, guard_t(1));
-
-	__cxa_guard_release(&guard);
-	TEST_ASSERT_EQUALS(guard, guard_t(1));
+	static StaticClass obj;
+	return obj;
 }
 
 void
-CxaGuardTest::testConstructor()
+FiberGuardTest::testConstructor()
 {
 	TEST_ASSERT_EQUALS(constructor_calls, 0);
 
