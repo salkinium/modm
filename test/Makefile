@@ -13,12 +13,13 @@
 LBUILD = $(shell which lbuild)
 # SCONS = python3 `which scons`
 SCONS = scons
+port ?= "auto"
 
 define compile-test
 	@$(RM) -r ../build/generated-unittest/$(1)
 	$(LBUILD) -p ../build/generated-unittest/$(1) -c config/$(1).xml $(3) \
 			  -C ../build/generated-unittest/$(1) build --no-log
-	$(SCONS) -C ../build/generated-unittest/$(1) $(2)
+	$(SCONS) -C ../build/generated-unittest/$(1) $(2) port=$(port)
 endef
 define run-test
 	$(call compile-test,$(1),$(2) program,$(3))
