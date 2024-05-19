@@ -35,10 +35,14 @@ runCore1(void (*entry)(), uint32_t *stack_bottom, uint32_t stack_size)
 {
 	// assert(!(stack_size & 3u));
 	uint32_t *stack_ptr = stack_bottom + (stack_size / sizeof(uint32_t));
+
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Warray-bounds"
 	// push 1 value onto top of stack for core1_trampoline
 	stack_ptr -= 2;
 	stack_ptr[0] = (uintptr_t)entry;
 	stack_ptr[1] = (uintptr_t)core1_wrapper;
+#pragma GCC diagnostic pop
 
 	// Allow for the fact that the caller may have already enabled the FIFO IRQ for their
 	// own purposes (expecting FIFO content after core 1 is launched). We must disable
