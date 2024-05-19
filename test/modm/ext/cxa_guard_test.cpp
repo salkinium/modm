@@ -10,10 +10,28 @@
 // ----------------------------------------------------------------------------
 
 #include "cxa_guard_test.hpp"
+#include <modm/architecture/detect.hpp>
+
+
+extern "C"
+{
+
+#ifdef MODM_CPU_ARM
+using guard_t = uint32_t;
+#else
+using guard_t = uint64_t;
+#endif
+
+int __cxa_guard_acquire(guard_t*);
+void __cxa_guard_release(guard_t*);
+void __cxa_guard_abort(guard_t*);
+
+}
+
 
 namespace
 {
-	int guard{0};
+	guard_t guard{0};
 
 	uint8_t constructor_calls{0};
 	struct StaticClass
@@ -37,25 +55,32 @@ namespace
 	}
 }
 
-
 void
 CxaGuardTest::testGuard()
 {
-	TEST_ASSERT_EQUALS(guard, 0);
+	TEST_ASSERT_EQUALS(guard, guard_t(0));
 
-	int retval = __cxa_guard_acquire(&guard);
-	TEST_ASSERT_EQUALS(retval, 1);
-	TEST_ASSERT_EQUALS(guard, 0x100);
+	TEST_ASSERT_EQUALS(__cxa_guard_acquire(&guard), 1);
+#ifndef MODM_OS_HOSTED
+	TEST_ASSERT_EQUALS(guard, guard_t(0x10));
+#endif
+
+	__cxa_guard_abort(&guard);
+	TEST_ASSERT_EQUALS(guard, guard_t(0));
+
+	TEST_ASSERT_EQUALS(__cxa_guard_acquire(&guard), 1);
+#ifndef MODM_OS_HOSTED
+	TEST_ASSERT_EQUALS(guard, guard_t(0x10));
+#endif
 
 	__cxa_guard_release(&guard);
-	TEST_ASSERT_EQUALS(guard, 1);
+	TEST_ASSERT_EQUALS(guard, guard_t(1));
 
-	retval = __cxa_guard_acquire(&guard);
-	TEST_ASSERT_EQUALS(retval, 0);
-	TEST_ASSERT_EQUALS(guard, 1);
+	TEST_ASSERT_EQUALS(__cxa_guard_acquire(&guard), 0);
+	TEST_ASSERT_EQUALS(guard, guard_t(1));
 
 	__cxa_guard_release(&guard);
-	TEST_ASSERT_EQUALS(guard, 1);
+	TEST_ASSERT_EQUALS(guard, guard_t(1));
 }
 
 void

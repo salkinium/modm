@@ -2,7 +2,7 @@
  * Copyright (c) 2009-2011, Fabian Greif
  * Copyright (c) 2010, Martin Rosekeit
  * Copyright (c) 2012, Sascha Schade
- * Copyright (c) 2012-2014, 2020, Niklas Hauser
+ * Copyright (c) 2012-2014, 2020, 2024, Niklas Hauser
  *
  * This file is part of the modm project.
  *
@@ -27,44 +27,72 @@ void __cxa_deleted_virtual()
 
 %% if with_threadsafe_statics
 #include <atomic>
-/* One-time construction API, see ARM IHI0041D section 3.2.3.
- * The ARM C++ ABI mandates the guard to be 32-bit aligned, 32-bit values.
- */
+%% if is_avr
+%#
+// Even thought the actual guard size is uint64_t on AVR, we only need to access
+// the first uint8_t and thus can significantly reduce the code size of the
+// atomic access implementation.
+using guard_type = uint8_t;
+%% elif is_cortex_m
+#include <modm/platform/device.hpp>
+
+// One-time construction API, see ARM IHI0041D section 3.2.3.
+// The ARM C++ ABI mandates the guard to be 32-bit aligned, 32-bit values.
+using guard_type = uint32_t;
+%% else
+%#
+using guard_type = uint64_t;
+%% endif
+%#
 enum
 {
 	UNINITIALIZED = 0,
 	INITIALIZED = 1,
-	INITIALIZING = 0x100,
+	INITIALIZING = 0x10,
 };
 
 // This function returns 1 only if the object needs to be initialized
-extern "C" int __cxa_guard_acquire(int *guard)
+extern "C" int
+__cxa_guard_acquire(guard_type *guard)
 {
 	auto atomic_guard = std::atomic_ref(*guard);
-	if (atomic_guard.load() == INITIALIZED)
-		return 0;
-	if (atomic_guard.exchange(INITIALIZING) == INITIALIZING)
+	guard_type value = atomic_guard.load(std::memory_order_relaxed);
+	do
 	{
-		modm_assert(0, "stat.rec",
-				"Recursive initialization of a function static!", guard);
+		if (value == INITIALIZED) return 0;
+		if (value == INITIALIZING)
+		{
+%% if is_cortex_m
+			const bool is_in_irq = __get_IPSR();
+%% else
+			// The hardware cannot tell us, we must assume it to be true
+			constexpr bool is_in_irq = true;
+%% endif
+			// We got called from inside an interrupt, but we cannot yield back
+			modm_assert(not is_in_irq, "stat.rec",
+					"Recursive initialization of a function static!", guard);
+		}
+		value = UNINITIALIZED;
 	}
+	while(not atomic_guard.compare_exchange_weak(value, INITIALIZING,
+						std::memory_order_acquire, std::memory_order_relaxed));
 	return 1;
 }
 
 // After this function the compiler expects `(guard & 1) == 1`!
-extern "C" void __cxa_guard_release(int *guard) noexcept
+extern "C" void
+__cxa_guard_release(guard_type *guard)
 {
 	auto atomic_guard = std::atomic_ref(*guard);
-	atomic_guard.store(INITIALIZED);
+	atomic_guard.store(INITIALIZED, std::memory_order_release);
 }
 
 // Called if the initialization terminates by throwing an exception.
 // After this function the compiler expects `(guard & 3) == 0`!
-extern "C" void __cxa_guard_abort([[maybe_unused]] int *guard) noexcept
+extern "C" void
+__cxa_guard_abort([[maybe_unused]] guard_type *guard)
 {
-%% if with_exceptions
 	auto atomic_guard = std::atomic_ref(*guard);
-	atomic_guard.store(UNINITIALIZED);
-%% endif
+	atomic_guard.store(UNINITIALIZED, std::memory_order_release);
 }
 %% endif

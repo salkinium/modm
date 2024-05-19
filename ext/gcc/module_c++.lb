@@ -23,6 +23,7 @@ Depending on the module options, the compiler options are appended with either:
 
 - `-fno-exceptions`: no C++ exceptions.
 - `-fno-rtti`: no C++ run-time type information.
+- `-fno-threadsafe-statics`: no protection of static variable initialization.
 
 or:
 
@@ -56,12 +57,13 @@ def prepare(module, options):
             BooleanOption(
                 name="rtti", default=False,
                 description=descr_rtti))
+
+    if is_avr or is_cortex_m:
         module.add_option(
             BooleanOption(
                 name="safe_statics", default=True,
                 description=descr_safe_statics))
 
-    if is_avr or is_cortex_m:
         module.depends(":architecture:assert", ":stdc")
 
     return True
@@ -84,6 +86,7 @@ def build(env):
         "with_memory_traits": env.has_module(":architecture:memory"),
         "with_heap": env.has_module(":platform:heap"),
         "is_avr": is_avr,
+        "is_cortex_m": is_cortex_m,
     }
     env.outbasepath = "modm/ext/gcc"
     env.template("cxxabi.cpp.in")
@@ -133,7 +136,7 @@ Enables the full use of C++ runtime type information.
 descr_safe_statics = """# C++ Safe Statics Initialization
 
 Enables safe initialization of statics inside functions and interrupts.
-In case of recursive initialization the debug assertion `cxa.guard.recursion`
+In case of recursive initialization the debug assertion `stat.rec`
 is raised.
 
 Further reading on this topic:

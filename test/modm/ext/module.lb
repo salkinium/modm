@@ -17,8 +17,7 @@ def init(module):
 
 def prepare(module, options):
     module.depends("modm:stdc++")
-    core = options[":target"].get_driver("core")["type"]
-    return core.startswith("cortex-m")
+    return True
 
 
 def build(env):

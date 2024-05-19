@@ -23,6 +23,7 @@
     <module>modm-test:test:communication:xpcc</module>
     <module>modm-test:test:platform:**</module>
     <module>modm-test:test:processing</module>
+    <module>modm-test:test:ext</module>
     <module>modm-test:test:ui</module>
   </modules>
 </library>
