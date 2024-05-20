@@ -88,6 +88,7 @@ def get_modules(builder, limit=None):
         modules = {"modm": DeviceTree("modm", target)}
         modules["modm"].addSortKey(lambda mo: (mo.name, mo["filename"]))
         for init in imodules:
+            if init.name.startswith("__"): continue
             if init.name.isdigit(): continue;
             m = modules[init.parent].addChild(init.fullname.split(":")[-1])
             modules[init.fullname] = m
@@ -102,6 +103,7 @@ def get_modules(builder, limit=None):
 
             num_options.append(len(init._options))
             for o in init._options:
+                if o.name.startswith("__"): continue
                 op = m.addChild(o.fullname.split(":")[-1])
                 op.addSortKey(lambda oo: (oo.name, oo["type"], oo.get("value", "")))
                 op.setAttribute("type", type(o).__name__)
@@ -123,6 +125,7 @@ def get_modules(builder, limit=None):
                                 opdep.setValue("{} -> [{}]".format(valin, vconcat))
 
             for c in init._collectors:
+                if c.name.startswith("__"): continue
                 cp = m.addChild(c.fullname.split(":")[-1])
                 cp.addSortKey(lambda cc: (cc.name))
                 cp.setAttribute("type", type(c).__name__)
@@ -131,6 +134,7 @@ def get_modules(builder, limit=None):
                 opvals.setValue(c.format_values())
 
             for q in init._queries:
+                if q.name.startswith("__"): continue
                 qp = m.addChild(q.fullname.split(":")[-1])
                 qp.addSortKey(lambda qq: (qq.name))
                 qp.setAttribute("type", type(q).__name__)
