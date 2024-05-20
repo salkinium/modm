@@ -30,6 +30,9 @@ or:
 - `-fexceptions`: with C++ exceptions.
 - `-frtti`: with C++ run-time type information.
 
+The `std::atomic` interface is implemented for the AVR and Cortex-M devices.
+
+
 ## AVR
 
 A partial port of GCC libstdc++ is provided:
@@ -63,9 +66,9 @@ def prepare(module, options):
             BooleanOption(
                 name="safe_statics", default=True,
                 description=descr_safe_statics))
+        module.depends(":architecture:atomic", ":architecture:assert")
 
-        module.depends(":architecture:assert", ":stdc")
-
+    module.depends(":stdc")
     return True
 
 
@@ -73,6 +76,10 @@ def build(env):
     core = env[":target"].get_driver("core")["type"]
     is_avr = core.startswith("avr")
     is_cortex_m = core.startswith("cortex-m")
+
+    if "hosted" in core:
+        env.collect(":build:library", "atomic")
+
     if not (is_avr or is_cortex_m):
         return
 
@@ -92,10 +99,25 @@ def build(env):
     env.template("cxxabi.cpp.in")
     env.template("new_delete.cpp.in")
 
+    env.substitutions = {
+        "is_multicore": env.has_module(":platform:multicore"),
+        "bus_width": 8 if core.startswith("avr") else 32,
+        "bit_lengths": [8, 16, 32, 64] if core.startswith("avr") or core.startswith("cortex-m0") else [64],
+    }
+    filters = {
+        "u": lambda bits: "unsigned int" if (bits == 32 and is_cortex_m) else f"uint{bits}_t"
+    }
+    env.template("modm_atomic.hpp.in", filters=filters)
+    env.template("atomic.cpp.in", filters=filters)
+
     if is_avr:
         env.collect(":build:path.include", "modm/ext/gcc/libstdc++/include")
         env.copy("libstdc++", ignore=env.ignore_files("*.lb", "*.md", "*.in", "examples"))
         env.template("assert.cpp.in", "assert.cpp")
+
+    env.outbasepath = "modm/ext/gcc"
+    env.copy("atomic")
+    env.collect(":build:path.include", "modm/ext/gcc")
 
     env.collect(":build:cxxflags", "-fno-use-cxa-atexit")
     # Threadsafe statics

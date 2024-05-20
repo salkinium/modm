@@ -12,7 +12,8 @@
 
 #include <modm/platform/device.hpp>
 #include <hardware/structs/sio.h>
-#include <atomic>
+// We need the spinlock itself to implement <atomic>!
+// #include <atomic>
 
 namespace modm::platform::multicore
 {
@@ -94,12 +95,12 @@ public:
 	{
 		auto l = getInstance();
 		while (*l == 0);
-		std::atomic_thread_fence(std::memory_order_acquire);
+		__atomic_thread_fence(__ATOMIC_ACQUIRE);
 	}
 	static inline void unlock()
 	{
 		auto l = getInstance();
-		std::atomic_thread_fence(std::memory_order_release);
+		__atomic_thread_fence(__ATOMIC_RELEASE);
 		*l = 0;
 	}
 };
