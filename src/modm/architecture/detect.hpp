@@ -203,15 +203,19 @@
 #	define MODM_CPU_ARM		1
 #	define MODM_ALIGNMENT	4
 #	if defined __ARM_ARCH_6SM__ || defined __ARM_ARCH_6M__
+#		define MODM_CPU_CORTEX_M	1
 #		define MODM_CPU_CORTEX_M0	1
 #		define MODM_CPU_STRING		"ARM Cortex-M0"
 #	elif defined __ARM_ARCH_7M__
+#		define MODM_CPU_CORTEX_M	1
 #		define MODM_CPU_CORTEX_M3	1
 #		define MODM_CPU_STRING		"ARM Cortex-M3"
 #	elif defined __ARM_ARCH_7EM__
+#		define MODM_CPU_CORTEX_M	1
 #		define MODM_CPU_CORTEX_M4	1
 #		define MODM_CPU_STRING		"ARM Cortex-M4"
 #	elif defined __ARM_ARCH_8M_MAIN__
+#		define MODM_CPU_CORTEX_M	1
 #		define MODM_CPU_CORTEX_M33	1
 #		define MODM_CPU_STRING		"ARM Cortex-M33"
 #	elif defined __ARM_ARCH_ISA_A64
