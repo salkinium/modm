@@ -35,14 +35,14 @@ public:
 
 		while (true)
 		{
-			PT_CALL(encoder.readout());
+			PT_CALL(encoder.read());
 
 			MODM_LOG_INFO << "\nNew readout:" << modm::endl;
-			MODM_LOG_INFO << "  angle degree: " << data.getAngleDeg() << " degrees" << modm::endl;
-			MODM_LOG_INFO << "     angle rad: " << data.getAngleRad() << " radians" << modm::endl;
-			MODM_LOG_INFO << "     angle raw: " << data.getAngleRaw() << modm::endl;
+			MODM_LOG_INFO << "  angle degree: " << data.toDegree() << " degrees" << modm::endl;
+			MODM_LOG_INFO << "     angle rad: " << data.toRadian() << " radians" << modm::endl;
+			MODM_LOG_INFO << "     angle raw: " << data.data << modm::endl;
 
-			timeout.restart(std::chrono::milliseconds(500));
+			timeout.restart(500ms);
 			PT_WAIT_UNTIL(timeout.isExpired());
 		}
 
@@ -50,7 +50,7 @@ public:
 	}
 
 private:
-	modm::as5047::Data data;
+	modm::as5047::Data data{0};
 	modm::As5047<SpiMaster, Cs> encoder;
 
 	modm::ShortTimeout timeout;

@@ -11,15 +11,15 @@
  */
 // ----------------------------------------------------------------------------
 
-#ifndef MODM_AS5047_HPP
-#define MODM_AS5047_HPP
+#pragma once
 
 #include <array>
+#include <numbers>
 #include <modm/architecture/interface/register.hpp>
 #include <modm/architecture/interface/spi_device.hpp>
 #include <modm/processing/resumable.hpp>
 #include <modm/processing/timer.hpp>
-#include <numbers>
+#include <modm/math/geometry/angle_int.hpp>
 
 namespace modm
 {
@@ -81,34 +81,7 @@ struct as5047
 
 	};
 
-	struct modm_packed Data
-	{
-		/// @return
-		constexpr float
-		getAngleRad() const
-		{
-			const uint16_t angle = data & 0x3fff;
-			return static_cast<float>(angle) / 16383.f * 2.f * std::numbers::pi_v<float>;
-		}
-
-		/// @return
-		constexpr float
-		getAngleDeg() const
-		{
-			const uint16_t angle = data & 0x3fff;
-			return static_cast<float>(angle) / 16383.f * 360.f;
-		}
-
-		/// @return
-		constexpr uint16_t
-		getAngleRaw() const
-		{
-			const uint16_t angle = data & 0x3fff;
-			return angle;
-		}
-
-		uint16_t data;
-	};
+	using Data = modm::IntegerAngle<14>;
 };  // struct as5047
 
 /**
@@ -129,13 +102,9 @@ public:
 	 */
 	As5047(Data &data);
 
-	/// Call this function once before using the device
-	modm::ResumableResult<void>
-	initialize();
-
 	/// Read the raw data from the sensor
 	modm::ResumableResult<void>
-	readout();
+	read();
 
 	/// Get the data object for this sensor
 	inline Data &
@@ -153,5 +122,3 @@ private:
 }  // namespace modm
 
 #include "as5047_impl.hpp"
-
-#endif  // MODM_AS5047_HPP
