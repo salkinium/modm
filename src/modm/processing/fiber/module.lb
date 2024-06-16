@@ -43,6 +43,7 @@ def build(env):
         "is_avr": core.startswith("avr"),
         "is_windows": env[":target"].identifier.family == "windows",
         "is_darwin": env[":target"].identifier.family == "darwin",
+        "with_psplim": core.startswith("cortex-m") and sum(c.isnumeric() for c in core) == 2,
         "core": core,
         "with_fpu": with_fpu,
         "target": env[":target"].identifier,

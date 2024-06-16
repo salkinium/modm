@@ -188,14 +188,18 @@ modm_context_start(modm_context_t*)
 		"orr r1, r1, #2		\n\t"	// Set SPSEL
 %% endif
 		"msr control, r1	\n\t"
-
+%#
 %% if is_cm0
 		"ldr r1, [r0]		\n\t"
 		"mov sp,  r1		\n\t"	// Set PSP to ctx->sp
+%% elif with_psplim
+		"ldm r0, {r1-r2}	\n\t"
+		"msr psplim, r2		\n\t"	// Set PSPLIM to ctx->bottom
+		"mov sp, r1			\n\t"	// Set PSP to ctx->sp
 %% else
 		"ldr sp, [r0]		\n\t"	// Set PSP to ctx->sp
 %% endif
-
+%#
 		MODM_POP_CONTEXT()
 	);
 }
@@ -213,13 +217,18 @@ modm_context_jump(modm_context_t*, modm_context_t*)
 %% else
 		"str sp, [r0]		\n\t"	// Store the SP in from->sp
 %% endif
+%#
 %% if is_cm0
 		"ldr r2, [r1]		\n\t"
 		"mov sp,  r2		\n\t"	// Restore SP from to->sp
+%% elif with_psplim
+		"ldm r1, {r1-r2}	\n\t"
+		"msr psplim, r2		\n\t"	// Set PSPLIM to ctx->bottom
+		"mov sp, r1			\n\t"	// Set PSP to ctx->sp
 %% else
 		"ldr sp, [r1]		\n\t"	// Restore SP from to->sp
 %% endif
-
+%#
 		MODM_POP_CONTEXT()
 	);
 }

@@ -276,6 +276,39 @@ Note that stack usage measurement through watermarking can be inaccurate if the
 registers contain the watermark value.
 
 
+### ARMv8-M Stack Limit Registers
+
+On ARMv8-M devices, the PSPLIM register is set to the bottom of the fiber stack
+so that stack overflows are reliably detected and cause a STKOF UsageFault if
+enabled, or a HardFault if not, both on the main stack.
+
+Currently no recovery strategy is implementable, since accessing the scheduler
+is not interrupt-safe and any acquired resources of the offending fiber are not
+tracked and can thus also not be released. Therefore, no default implementation
+to handle the UsageFault is provided.
+
+Here is an example handler if you wish to experiment with solutions:
+
+```cpp
+// Enable the UsageFault handler *before* modm::fiber::Scheduler::run();
+SCB->SHCSR |= SCB_SHCSR_USGFAULTENA_Msk;
+
+// On fiber stack overflow this handler will be called
+extern "C" void UsageFault_Handler()
+{
+	// check if the fault is a stack overflow *from the fiber stack*
+	if (SCB->CFSR & SCB_CFSR_STKOF_Msk and __get_PSP() == __get_PSPLIM())
+	{
+		// lower the priority of the usage fault to allow the UART interrupts to work
+		NVIC_SetPriority(UsageFault_IRQn, (1ul << __NVIC_PRIO_BITS) - 1ul);
+		// raise an assertion to report this overflow
+		modm_assert(false, "fbr.stkof", "Fiber stack overflow", modm::this_fiber::get_id());
+	}
+	else HardFault_Handler();
+}
+```
+
+
 ## Scheduling
 
 The scheduler `run()` function will suspend execution of the call site, usually
