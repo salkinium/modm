@@ -53,7 +53,7 @@ protected:
 	{
 %% if core.startswith("cortex-m")
 		// Ensure that calling this in an interrupt gives a different ID
-		if (const auto irq = __get_IPSR(); irq) return irq;
+		if (const auto irq = __get_IPSR(); irq >= 16) return irq;
 %% endif
 		return reinterpret_cast<uintptr_t>(current);
 	}
