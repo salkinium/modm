@@ -29,6 +29,7 @@ main()
 	Board::LedUp::set();
 
 	// Enable USART 1
+    using Usart1 = BufferedUart<UsartHal1>;
 	Usart1::connect<GpioOutputA9::Tx>();
 	Usart1::initialize<Board::SystemClock, 9600_Bd>();
 

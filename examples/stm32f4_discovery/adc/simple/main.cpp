@@ -21,6 +21,7 @@
 
 typedef GpioInputA7 AdcIn;
 
+using Usart2 = BufferedUart<UsartHal2>;
 modm::IODeviceWrapper< Usart2, modm::IOBuffer::BlockIfFull > loggerDevice;
 modm::log::Logger modm::log::info(loggerDevice);
 

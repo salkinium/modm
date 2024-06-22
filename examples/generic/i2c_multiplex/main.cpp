@@ -22,6 +22,7 @@ using I2cMultiplexer = modm::I2cMultiplexer<MyI2cMaster, Mpx>;
 #ifndef MODM_BOARD_HAS_LOGGER
 #include <modm/debug.hpp>
 // Add logger manually
+using Usart2 = BufferedUart<UsartHal2, UartTxBuffer<2048>, UartRxBuffer<2048>>;
 using LoggerUsart = Usart2;
 using LoggerUsartTx = modm::platform::GpioA2;
 using LoggerUsartRx = modm::platform::GpioA3;

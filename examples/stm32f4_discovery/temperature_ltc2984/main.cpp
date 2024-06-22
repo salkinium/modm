@@ -17,6 +17,7 @@
 #include <modm/architecture/interface/gpio.hpp>
 #include <modm/io/iostream.hpp>
 
+using Usart2 = BufferedUart<UsartHal2, UartTxBuffer<2048>>;
 modm::IODeviceWrapper< Usart2, modm::IOBuffer::BlockIfFull > device;
 modm::IOStream logger(device);
 

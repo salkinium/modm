@@ -18,6 +18,8 @@
 // NOTE: This example requires a connection between PB6 and PC11.
 //
 
+using Usart1 = BufferedUart<UsartHal1>;
+using Uart4 = BufferedUart<UartHal4>;
 modm::sab2::Interface<Usart1, 20> sabA;
 modm::sab2::Interface<Uart4, 20> sabB;
 

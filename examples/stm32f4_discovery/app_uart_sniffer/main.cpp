@@ -16,6 +16,9 @@
 #include <modm/processing/timer.hpp>
 #include <inttypes.h>
 
+using Usart1 = BufferedUart<UsartHal1>;
+using Usart2 = BufferedUart<UsartHal2>;
+using Usart3 = BufferedUart<UsartHal3>;
 modm::IODeviceWrapper< Usart2, modm::IOBuffer::BlockIfFull > loggerDevice;
 
 // Set all four logger streams to use the UART

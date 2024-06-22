@@ -17,6 +17,7 @@
 #include <modm/io/iostream.hpp>
 #include <modm/debug/logger.hpp>
 
+using Usart2 = BufferedUart<UsartHal2>;
 modm::IODeviceWrapper< Usart2, modm::IOBuffer::BlockIfFull > device;
 
 // Set all four logger streams to use the UART

@@ -12,6 +12,8 @@
 #include <modm/board.hpp>
 #include <modm/debug/logger.hpp>
 
+
+using Usart2 = BufferedUart<UsartHal2, UartTxBuffer<256>>;
 modm::IODeviceWrapper< Usart2, modm::IOBuffer::BlockIfFull > loggerDevice;
 modm::log::Logger modm::log::info(loggerDevice);
 

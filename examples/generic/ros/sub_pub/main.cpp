@@ -29,7 +29,7 @@
 
 // Define which UART is used for communication to and from ROS serial
 // When using the STlink Uart on Nucleo boards logging must be disabled.
-using RosSerialUart = Board::stlink::Uart;
+using RosSerialUart = BufferedUart<UsartHal2, UartTxBuffer<512>, UartRxBuffer<512>>;
 
 namespace ampel
 {

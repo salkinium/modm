@@ -17,6 +17,7 @@
 
 using namespace Board;
 
+using Usart1 = BufferedUart<UsartHal1>;
 modm::IODeviceWrapper< Usart1, modm::IOBuffer::BlockIfFull > loggerDevice;
 
 // Set all four logger streams to use the UART

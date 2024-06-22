@@ -17,6 +17,7 @@
 #include <modm/architecture/interface/gpio.hpp>
 #include <modm/driver/pressure/bmp085.hpp>
 
+using Usart2 = BufferedUart<UsartHal2>;
 modm::IODeviceWrapper< Usart2, modm::IOBuffer::BlockIfFull > device;
 modm::IOStream stream(device);
 

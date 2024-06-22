@@ -13,6 +13,7 @@
 #include <modm/debug/logger.hpp>
 #include <modm/driver/usb/stusb4500.hpp>
 
+using Usart1 = BufferedUart<UsartHal1>;
 modm::IODeviceWrapper< Usart1, modm::IOBuffer::BlockIfFull > loggerDevice;
 #undef	MODM_LOG_LEVEL
 #define	MODM_LOG_LEVEL modm::log::INFO

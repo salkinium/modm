@@ -31,6 +31,7 @@
 
 #include <modm/board.hpp>
 
+using Usart2 = BufferedUart<UsartHal2>;
 modm::IODeviceWrapper< Usart2, modm::IOBuffer::BlockIfFull > device;
 modm::IOStream stream(device);
 

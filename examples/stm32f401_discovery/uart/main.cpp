@@ -30,6 +30,7 @@ main()
 	Board::LedRed::set();
 
 	// Enable USART 2
+    using Usart2 = BufferedUart<UsartHal2>;
 	Usart2::connect<GpioA2::Tx>();
 	Usart2::initialize<Board::SystemClock, 9600_Bd>();
 

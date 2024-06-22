@@ -48,7 +48,7 @@ messageModmToRos(const modm::can::Message& source, can_msgs::Frame& destination)
 #undef	MODM_LOG_LEVEL
 #define	MODM_LOG_LEVEL modm::log::DISABLED
 
-using RosSerialUart = Usart2;
+using RosSerialUart = BufferedUart<UsartHal2, UartTxBuffer<512>, UartRxBuffer<512>>;
 
 namespace ros
 {

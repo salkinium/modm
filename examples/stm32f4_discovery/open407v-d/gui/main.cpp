@@ -41,6 +41,7 @@ using namespace modm::color::html;
 #define	MODM_LOG_LEVEL modm::log::DEBUG
 
 // Create an IODeviceWrapper around the Uart Peripheral we want to use
+using Usart2 = BufferedUart<UsartHal2>;
 modm::IODeviceWrapper< Usart2, modm::IOBuffer::BlockIfFull > loggerDevice;
 
 // Set all four logger streams to use the UART

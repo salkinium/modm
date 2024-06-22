@@ -24,6 +24,7 @@ typedef GpioInputC2  Adc2In;
 typedef GpioInputB13 Adc3In;
 typedef GpioInputB12 Adc4In;
 
+using Usart2 = BufferedUart<UsartHal2>;
 modm::IODeviceWrapper< Usart2, modm::IOBuffer::BlockIfFull > loggerDevice;
 modm::log::Logger modm::log::info(loggerDevice);
 

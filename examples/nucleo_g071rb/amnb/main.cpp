@@ -15,6 +15,9 @@
 using namespace Board;
 using namespace std::chrono_literals;
 using namespace modm::amnb;
+using Usart1 = BufferedUart<UsartHal1, UartRxBuffer<32>>;
+using Usart3 = BufferedUart<UsartHal3, UartRxBuffer<16>>;
+using Usart4 = BufferedUart<UsartHal4>;
 // ----------------------------------------------------------------------------
 
 Listener listeners[] =
