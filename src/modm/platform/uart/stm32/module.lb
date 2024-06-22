@@ -137,4 +137,6 @@ def build(env):
 
     env.copy("uart.hpp")
     env.copy("uart_buffer.hpp")
+    if env.has_module(":freertos"):
+        env.copy(repopath("ext/aws/uart_buffer_freertos.hpp"), "uart_buffer_freertos.hpp")
 
