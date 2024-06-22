@@ -99,7 +99,7 @@ namespace stlink
 {
 using Rx = GpioInputA15;
 using Tx = GpioOutputA2;
-using Uart = Usart2;
+using Uart = BufferedUart<UsartHal2, UartTxBuffer<2048>>;
 }
 
 using LoggerDevice = modm::IODeviceWrapper< stlink::Uart, modm::IOBuffer::BlockIfFull >;

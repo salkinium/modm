@@ -130,7 +130,7 @@ namespace uext
 /// @{
 using Rx = GpioInputA10;
 using Tx = GpioOutputA9;
-using Uart = Usart1;
+using Uart = BufferedUart<UsartHal1, UartTxBuffer<2048>>;
 /// @}
 }
 

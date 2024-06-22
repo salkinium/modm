@@ -107,6 +107,7 @@ struct SystemClock
 	}
 };
 
+using Usart1 = BufferedUart<UsartHal1>;
 using LoggerDevice = modm::IODeviceWrapper< Usart1 , modm::IOBuffer::BlockIfFull >;
 
 using Button = GpioInputA0;

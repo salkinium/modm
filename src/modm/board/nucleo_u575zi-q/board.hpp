@@ -153,7 +153,7 @@ namespace stlink
 /// @{
 using Rx = GpioOutputA10;
 using Tx = GpioInputA9;
-using Uart = Usart1;
+using Uart = BufferedUart<UsartHal1, UartTxBuffer<2048>>;
 /// @}
 }
 
