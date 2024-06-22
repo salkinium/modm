@@ -24,6 +24,7 @@
 #include "../device.hpp"
 #include "uart_base.hpp"
 #include <modm/architecture/interface/peripheral.hpp>
+#include <modm/utils/inplace_function.hpp>
 
 
 namespace modm::platform
@@ -44,6 +45,8 @@ class {{ hal }} : public UartBase
 {
 public:
 	static constexpr bool isExtended = {{ extended_driver | lower }};
+	static const Peripheral UartPeripheral = Peripheral::{{name}};
+	static inline modm::inplace_function<bool(bool)> InterruptCallback;
 
 	/// Enables the clock, resets the hardware
 	/// @warning Call `enableOperation()` to start the peripheral!

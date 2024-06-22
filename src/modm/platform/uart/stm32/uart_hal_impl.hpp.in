@@ -287,7 +287,6 @@ void
 		tmp = {{ peripheral }}->DR;
 		(void) tmp;
 	}
-	(void) flags;	// avoid compiler warning
 %% endif
 }
 

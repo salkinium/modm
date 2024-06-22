@@ -10,14 +10,14 @@
 // ----------------------------------------------------------------------------
 
 #include "../device.hpp"
+#include "uart_base.hpp"
 
 %% for irq, uarts in uart_shared_irqs_data.items()
 %% for uart in uarts
-%% if "Lpuart" in uart.type
-#include "lpuart_{{ uart["id"] }}.hpp"
-%%else
-#include "uart_{{ uart["id"] }}.hpp"
-%%endif
+namespace modm::platform::{{ uart.name }}
+{
+    extern void irq();
+}
 %% endfor
 %% endfor
 

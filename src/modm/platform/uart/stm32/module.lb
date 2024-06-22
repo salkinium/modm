@@ -28,20 +28,6 @@ class Instance(Module):
 
     def prepare(self, module, options):
         module.depends(":platform:uart")
-
-        module.add_option(
-            NumericOption(
-                name="buffer.tx",
-                description="",
-                minimum=0, maximum="64Ki-2",
-                default=0))
-        module.add_option(
-            NumericOption(
-                name="buffer.rx",
-                description="",
-                minimum=0, maximum="64Ki-2",
-                default=0))
-
         return True
 
     def build(self, env):
@@ -53,7 +39,6 @@ class Instance(Module):
         props["uart_type"] = self.driver["name"].capitalize()
         props["name"] = self.driver["name"].capitalize() + str(self.instance)
         props["hal"] = self.driver["name"].capitalize() + "Hal" + str(self.instance)
-        props["buffered"] = env["buffer.tx"] or env["buffer.rx"]
 
         env.substitutions = props
         env.outbasepath = "modm/src/modm/platform/uart"
@@ -65,13 +50,8 @@ class Instance(Module):
 
         env.template("uart_hal.hpp.in", "{}_hal_{}.hpp".format(uart, self.instance))
         env.template("uart_hal_impl.hpp.in", "{}_hal_{}_impl.hpp".format(uart, self.instance))
-        env.template("uart.hpp.in", "{}_{}.hpp".format(uart, self.instance))
         env.template("uart.cpp.in", "{}_{}.cpp".format(uart, self.instance))
-
-        #props["instances"].append(props["name"])
-        if props["buffered"]:
-            props["buffered_instances"].append(props["name"])
-
+        props["instances"].append(props["name"])
 
 def init(module):
     module.name = ":platform:uart"
@@ -92,7 +72,8 @@ def prepare(module, options):
         ":math:algorithm",
         ":cmsis:device",
         ":platform:gpio",
-        ":platform:rcc")
+        ":platform:rcc",
+        ":utils")
 
     global props
     drivers = (device.get_all_drivers("uart") + device.get_all_drivers("usart") + device.get_all_drivers("lpuart"))
@@ -100,7 +81,6 @@ def prepare(module, options):
     props["over8"] = ("feature" in drivers[0]) and ("over8" in drivers[0]["feature"])
     props["tcbgt"] = ("feature" in drivers[0]) and ("tcbgt" in drivers[0]["feature"])
     props["instances"] = []
-    props["buffered_instances"] = []
 
     for driver in drivers:
         for instance in driver["instance"]:
@@ -142,7 +122,7 @@ def build(env):
     env.template("uart_base.hpp.in")
 
     props["uart_shared_irqs_data"] = dict()
-    for name in props["buffered_instances"]:
+    for name in props["instances"]:
         if name in props["shared_irqs"].keys():
             irq = props["shared_irqs"][name]
             if irq not in props["uart_shared_irqs_data"]:
@@ -154,3 +134,7 @@ def build(env):
             })
     if len(props["uart_shared_irqs_data"]):
         env.template("uart_shared.cpp.in")
+
+    env.copy("uart.hpp")
+    env.copy("uart_buffer.hpp")
+
