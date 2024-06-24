@@ -89,8 +89,7 @@ public:
 	static bool
 	write(uint8_t data)
 	{
-		if (transmitBufferSize() == 0 and txBuffer.isEmpty())
-			Hal::write(data);
+		if (isWriteFinished()) Hal::write(data);
 		else
 		{
 			if (not txBuffer.push(data)) return false;
@@ -148,14 +147,15 @@ class BufferedUart<Hal, UartRxBuffer<SIZE>, Buffers...>: public BufferedUart<Hal
 	static bool
 	InterruptCallback(bool first)
 	{
-		if constexpr (Parent::TxBufferSize) Parent::InterruptCallback(false);
-
 		if (Hal::isReceiveRegisterNotEmpty())
 		{
 			uint8_t data;
 			Hal::read(data);
 			rxBuffer.push(data);
 		}
+
+		if constexpr (Parent::TxBufferSize) Parent::InterruptCallback(false);
+
 		if (first) Hal::acknowledgeInterruptFlags(Hal::InterruptFlag::OverrunError);
 		return true;
 	}
