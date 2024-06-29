@@ -168,8 +168,10 @@ if (not is_ok) {
 }
 ```
 
-Additionally, these assertions are only active in debug mode. Of course they
-still evaluate and return the condition in release mode, so you can use them
+Additionally, these assertions are only active in `profile=debug` (more about
+profiles: [scons](https://modm.io/reference/module/modm-build-scons/#scons),
+[make](https://modm.io/reference/module/modm-build-make/#make)). Of course they
+still evaluate and return the condition in `profile=release`, so you can use them
 just as above:
 
 4. `bool modm_assert_continue_fail_debug()`
