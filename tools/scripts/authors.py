@@ -17,6 +17,7 @@ import argparse
 import re
 
 author_handles = {
+    "Akos Becsey": "becseya",
     "Alexander Solovets": "mbait",
     "Amar": "fb39ca4",
     "Amarok McLion": "amarokmclion",
@@ -55,6 +56,7 @@ author_handles = {
     "Linas Nikiperavicius": "linasnikis",
     "Lucas Mösch": "lmoesch",
     "Luiz Gili": "lgili",
+    "Hannes Ellinger": "el-han",
     "Lukas Güldenstein": "gueldenstone",
     "Marten Junga": "Maju-Ketchup",
     "Martin Esser": "Scabber",
