@@ -11,6 +11,11 @@
 
 #pragma once
 
+// Required to convince libstdc++ to enable scoped lock
+#ifndef __cpp_lib_scoped_lock
+#	define __cpp_lib_scoped_lock 201703L
+#endif
+
 #include "fiber.hpp"
 #include <modm/architecture/interface/atomic_lock.hpp>
 #include <limits>
