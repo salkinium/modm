@@ -16,7 +16,7 @@
 #	define __cpp_lib_scoped_lock 201703L
 #endif
 
-#include "fiber.hpp"
+#include "functions.hpp"
 #include <modm/architecture/interface/atomic_lock.hpp>
 #include <limits>
 #include <atomic>

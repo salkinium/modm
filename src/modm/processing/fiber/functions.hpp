@@ -13,9 +13,18 @@
 
 #pragma once
 
-#include "scheduler.hpp"
 #include <modm/architecture/interface/clock.hpp>
+#include <utility>
 #include <type_traits>
+
+namespace modm::fiber
+{
+
+/// Identifier of a fiber task.
+/// @ingroup modm_processing_fiber
+using id = uintptr_t;
+
+} // namespace modm::fiber
 
 namespace modm::this_fiber
 {
@@ -37,18 +46,12 @@ namespace modm::this_fiber
  *          fibers, and you may starve other fibers of processing time.
  *          If you cannot guarantee correct timings, consider using an RTOS.
  */
-inline void
-yield()
-{
-	modm::fiber::Scheduler::instance().yield();
-}
+void
+yield();
 
 /// Returns the id of the current fiber
-inline modm::fiber::id
-get_id()
-{
-	return modm::fiber::Scheduler::instance().get_id();
-}
+modm::fiber::id
+get_id();
 
 /// Yields the current fiber until `bool condition()` returns true.
 template< class Function >

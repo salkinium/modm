@@ -11,15 +11,16 @@
 // ----------------------------------------------------------------------------
 #pragma once
 
-#include "stack.hpp"
 #include "context.h"
+#include "stack.hpp"
 #include "stop_token.hpp"
+#include "functions.hpp"
 #include <type_traits>
 
-// forward declaration
-namespace modm::this_fiber { void yield(); }
+namespace modm
+{
 
-namespace modm::fiber
+namespace fiber
 {
 
 // forward declaration
@@ -33,10 +34,6 @@ Start
 	Now,	// Automatically add the fiber to the active scheduler.
 	Later,	// Manually add the fiber to a scheduler.
 };
-
-/// Identifier of a fiber task.
-/// @ingroup modm_processing_fiber
-using id = uintptr_t;
 
 /**
  * The fiber task connects the callable fiber object with the fiber context and
@@ -168,79 +165,29 @@ public:
 
 }	// namespace modm::fiber
 
-#include "scheduler.hpp"
-#include <memory>
-
-/// @cond
-namespace modm::fiber
+/**
+ * This class is a convenience extension of a fiber task, which contains the
+ * `modm::fiber::Stack` as part of the class. The class is constructed at
+ * runtime only, therefore it is placed into the `.bss` section by default and
+ * does not count towards your `.data` section size. To speed up booting you
+ * may place the object into the `modm_faststack` section.
+ *
+ * @ingroup modm_processing_fiber
+ */
+template< size_t StackSize = fiber::StackSizeDefault >
+class Fiber : public fiber::Task
 {
+	fiber::Stack<StackSize> stack;
+public:
+	template<class T>
+	Fiber(T&& task, fiber::Start start=fiber::Start::Now)
+	: Task(stack, std::forward<T>(task), start)
+	{}
+};
 
-template<size_t Size, class T>
-Task::Task(Stack<Size>& stack, T&& closure, Start start)
-{
-	constexpr bool with_stop_token = std::is_invocable_r_v<void, T, stop_token>;
-	if constexpr (std::is_convertible_v<T, void(*)()> or
-				  std::is_convertible_v<T, void(*)(stop_token)>)
-	{
-		// A plain function without closure
-		using Callable = std::conditional_t<with_stop_token, void(*)(stop_token), void(*)()>;
-		auto caller = (uintptr_t) +[](Callable fn)
-		{
-			if constexpr (with_stop_token) {
-				fn(fiber::Scheduler::instance().current->get_stop_token());
-			} else fn();
-			fiber::Scheduler::instance().unschedule();
-		};
-		modm_context_init(&ctx, stack.memory, stack.memory + stack.words,
-						  caller, (uintptr_t) static_cast<Callable>(closure));
-	}
-	else
-	{
-		// lambda functions with a closure must be allocated on the stack ALIGNED!
-		constexpr size_t align_mask = std::max(StackAlignment, alignof(std::decay_t<T>)) - 1u;
-		constexpr size_t closure_size = (sizeof(std::decay_t<T>) + align_mask) & ~align_mask;
-		static_assert(Size >= closure_size + StackSizeMinimum,
-				"Stack size must be larger than minimum stack size + aligned sizeof(closure))!");
-		// Find a suitable aligned area at the top of stack to allocate the closure
-		const uintptr_t ptr = uintptr_t(stack.memory + stack.words) - closure_size;
-		// construct closure in place
-		::new ((void*)ptr) std::decay_t<T>{std::forward<T>(closure)};
-		// Encapsulate the proper ABI function call into a simpler function
-		auto caller = (uintptr_t) +[](std::decay_t<T>* closure)
-		{
-			if constexpr (with_stop_token) {
-				(*closure)(fiber::Scheduler::instance().current->get_stop_token());
-			} else (*closure)();
-			fiber::Scheduler::instance().unschedule();
-		};
-		// initialize the stack below the allocated closure
-		modm_context_init(&ctx, stack.memory, (uintptr_t*)ptr, caller, ptr);
-	}
-	if (start == Start::Now) this->start();
-}
+}	// namespace modm
 
-inline bool
-Task::start()
-{
-	if (isRunning()) return false;
-	modm_context_reset(&ctx);
-	Scheduler::instance().add(*this);
-	return true;
-}
-
-constexpr unsigned int
-Task::hardware_concurrency()
-{
-	return Scheduler::hardware_concurrency();
-}
-
-bool inline
-Task::joinable() const
-{
-	if (not isRunning()) return false;
-	if (Scheduler::isInsideInterrupt()) return false;
-	return get_id() != Scheduler::instance().get_id();
-}
-
-}
-/// @endcond
+// carefully avoid incomplete type issues
+#ifndef MODM_FIBER_SCHEDULER_HPP
+#include "task_impl.hpp"
+#endif

@@ -11,18 +11,16 @@
 
 #pragma once
 
-#include "fiber.hpp"
+#include "functions.hpp"
 #include <limits>
 
 namespace modm::fiber
 {
 
-/// @ingroup modm_processing_fiber
-/// @{
-
 /// Implements the `std::barrier` interface for fibers.
 /// @warning This implementation is not interrupt-safe!
 /// @see https://en.cppreference.com/w/cpp/thread/barrier
+/// @ingroup modm_processing_fiber
 template< class CompletionFunction = decltype([]{}) >
 class barrier
 {
@@ -80,7 +78,5 @@ public:
 		(void) arrive();
 	}
 };
-
-/// @}
 
 }

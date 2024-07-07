@@ -11,18 +11,16 @@
 
 #pragma once
 
-#include "fiber.hpp"
+#include "functions.hpp"
 #include <limits>
 #include <atomic>
 
 namespace modm::fiber
 {
 
-/// @ingroup modm_processing_fiber
-/// @{
-
 /// Implements the `std::latch` interface for fibers.
 /// @see https://en.cppreference.com/w/cpp/thread/latch
+/// @ingroup modm_processing_fiber
 class latch
 {
 	latch(const latch&) = delete;
@@ -72,7 +70,5 @@ public:
 		wait();
 	}
 };
-
-/// @}
 
 }

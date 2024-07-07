@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2020, Erik Henriksson
+ * Copyright (c) 2023, Niklas Hauser
  *
  * This file is part of the modm project.
  *
@@ -9,5 +9,23 @@
  */
 // ----------------------------------------------------------------------------
 
-#include "fiber/functions.hpp"
-#include "fiber/task.hpp"
+#include "scheduler.hpp"
+
+/// @cond
+namespace modm::this_fiber
+{
+
+void
+yield()
+{
+	modm::fiber::Scheduler::instance().yield();
+}
+
+modm::fiber::id
+get_id()
+{
+	return modm::fiber::Scheduler::instance().get_id();
+}
+
+} // namespace modm::this_fiber
+/// @endcond

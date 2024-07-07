@@ -11,7 +11,8 @@
  */
 // ----------------------------------------------------------------------------
 
-#pragma once
+#ifndef MODM_FIBER_SCHEDULER_HPP
+#define MODM_FIBER_SCHEDULER_HPP
 
 #include "task.hpp"
 %% if multicore
@@ -20,9 +21,6 @@
 %% if core.startswith("cortex-m")
 #include <modm/platform/device.hpp>
 %% endif
-
-// forward declaration
-namespace modm::this_fiber { void yield(); modm::fiber::id get_id(); }
 
 namespace modm::fiber
 {
@@ -47,7 +45,7 @@ protected:
 	Task* last{nullptr};
 	Task* current{nullptr};
 
-	uintptr_t
+	uintptr_t inline
 	get_id() const
 	{
 %% if core.startswith("cortex-m")
@@ -57,7 +55,7 @@ protected:
 		return reinterpret_cast<uintptr_t>(current);
 	}
 
-	static bool
+	static bool inline
 	isInsideInterrupt()
 	{
 %% if core.startswith("cortex-m")
@@ -67,14 +65,14 @@ protected:
 %% endif
 	}
 
-	void
+	void inline
 	runNext(Task* task)
 	{
 		task->next = current->next;
 		current->next = task;
 	}
 
-	void
+	void inline
 	runLast(Task* task)
 	{
 		task->next = last->next;
@@ -82,7 +80,7 @@ protected:
 		last = task;
 	}
 
-	Task*
+	inline Task*
 	removeCurrent()
 	{
 		if (current == last) last = nullptr;
@@ -92,13 +90,13 @@ protected:
 		return current;
 	}
 
-	bool
+	bool inline
 	empty() const
 	{
 		return last == nullptr;
 	}
 
-	void
+	void inline
 	jump(Task& other)
 	{
 		auto from = current;
@@ -106,7 +104,7 @@ protected:
 		modm_context_jump(&from->ctx, &other.ctx);
 	}
 
-	void
+	void inline
 	yield()
 	{
 		if (current == nullptr) return;
@@ -116,7 +114,8 @@ protected:
 		jump(*next);
 	}
 
-	[[noreturn]] void
+	[[noreturn]]
+	void inline
 	unschedule()
 	{
 		Task* next = current->next;
@@ -130,7 +129,7 @@ protected:
 		__builtin_unreachable();
 	}
 
-	void
+	void inline
 	add(Task& task)
 	{
 		task.scheduler = this;
@@ -143,7 +142,7 @@ protected:
 		runLast(&task);
 	}
 
-	bool
+	bool inline
 	start()
 	{
 		if (empty()) return false;
@@ -154,7 +153,7 @@ protected:
 
 protected:
 	/// Returns the currently active scheduler.
-	static Scheduler&
+	static inline Scheduler&
 %% if multicore
 	instance(uint8_t core=::modm::platform::multicore::Core::cpuId())
 	{
@@ -178,7 +177,7 @@ public:
 	}
 
 	/// Runs the currently active scheduler.
-	static void
+	static inline void
 	run()
 	{
 		instance().start();
@@ -186,3 +185,5 @@ public:
 };
 
 } // namespace modm::fiber
+
+#endif // MODM_FIBER_SCHEDULER_HPP
