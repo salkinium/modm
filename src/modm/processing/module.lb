@@ -27,6 +27,12 @@ def build(env):
     env.outbasepath = "modm/src/modm/processing"
     env.copy("task.hpp")
 
+    if not env.has_module(":processing:fiber"):
+        env.outbasepath = "modm/src/modm/processing/"
+        env.copy("fiber/functions.hpp")
+        env.copy("fiber/no_yield.hpp")
+        env.copy("fiber.hpp")
+
     env.outbasepath = "modm/src/modm"
     headers = env.generated_local_files(filterfunc=lambda path: ".h" in path and not "_impl.h" in path)
     env.template("processing.hpp.in", substitutions={"headers": sorted(headers)})
