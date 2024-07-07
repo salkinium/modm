@@ -21,7 +21,7 @@ def is_enabled(env):
         not env.has_module(":processing:protothread")
 
 def prepare(module, options):
-    module.depends(":processing:timer", ":architecture:atomic")
+    module.depends(":architecture:clock", ":architecture:atomic")
 
     module.add_query(
         EnvironmentQuery(name="__enabled", factory=is_enabled))

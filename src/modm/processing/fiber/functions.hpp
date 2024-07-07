@@ -14,7 +14,7 @@
 #pragma once
 
 #include "scheduler.hpp"
-#include <modm/processing/timer.hpp>
+#include <modm/architecture/interface/clock.hpp>
 #include <type_traits>
 
 namespace modm::this_fiber
