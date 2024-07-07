@@ -19,6 +19,7 @@
 #include <modm/math/utils/arithmetic_traits.hpp>
 #include <modm/architecture/interface/clock.hpp>
 #include <modm/architecture/interface/assert.hpp>
+#include <modm/processing/fiber.hpp>
 
 namespace modm
 {
@@ -107,6 +108,11 @@ public:
 	/// @return `true` exactly once, after the timeout expired
 	bool
 	execute();
+
+	/// Wait until the timeout expired.
+	/// @warning This is a blocking call! Inside a fiber, this function yields.
+	void
+	wait();
 
 protected:
 	bool

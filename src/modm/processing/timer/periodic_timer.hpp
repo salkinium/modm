@@ -73,6 +73,17 @@ public:
 		}
 		return 0;
 	}
+
+	/// Wait until the periodic timer expired.
+	/// @warning This is a blocking call! Inside a fiber, this function yields.
+	/// @return the number of missed periods
+	size_t
+	wait()
+	{
+		size_t count{};
+		modm::this_fiber::poll([&]{ return (count = execute()); });
+		return count;
+	}
 };
 
 /**
