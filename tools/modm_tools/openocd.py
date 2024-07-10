@@ -67,7 +67,7 @@ class OpenOcdBackend(DebugBackend):
                 os.kill(self.process.pid, signal.CTRL_BREAK_EVENT)
             else:
                 os.killpg(os.getpgid(self.process.pid), signal.SIGTERM)
-            os.waitpid(os.getpgid(self.process.pid), 0)
+                os.waitpid(os.getpgid(self.process.pid), 0)
             self.process = None
 
 
