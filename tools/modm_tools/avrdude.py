@@ -10,7 +10,7 @@
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 # -----------------------------------------------------------------------------
 
-"""
+r"""
 ### AvrDude
 
 This tool simply wraps the `avrdude` command to provide two features:

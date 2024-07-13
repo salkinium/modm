@@ -10,7 +10,7 @@
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 # -----------------------------------------------------------------------------
 
-"""
+r"""
 ### BOSSA
 
 This tool simply wraps the `bossac` command line tool to guess the serial port.

@@ -10,7 +10,7 @@
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 # -----------------------------------------------------------------------------
 
-"""
+r"""
 ### OpenOCD
 
 Simply wraps OpenOCD and issues the right command to program the target.

@@ -10,7 +10,7 @@
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 # -----------------------------------------------------------------------------
 
-"""
+r"""
 ### Black Magic Probe
 
 This tool wraps GDB to program an ELF file onto a target connected to a BMP.

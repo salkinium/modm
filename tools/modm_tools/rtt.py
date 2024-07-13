@@ -10,7 +10,7 @@
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 # -----------------------------------------------------------------------------
 
-"""
+r"""
 ### Logging via Real-Time Transport (RTT)
 
 Logging using the RTT protocol is supported by the `modm:platform:rtt` module.

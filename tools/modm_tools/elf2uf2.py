@@ -11,7 +11,7 @@
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 # -----------------------------------------------------------------------------
 
-"""
+r"""
 ### UF2 Converter
 
 UF2 is a [Microsoft file format](https://github.com/microsoft/uf2) to pass

@@ -10,7 +10,7 @@
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 # -----------------------------------------------------------------------------
 
-"""
+r"""
 ### Logging via Single-Wire Output (SWO)
 
 Logging using the SWO protocol is supported by the `modm:platform:itm` module.
