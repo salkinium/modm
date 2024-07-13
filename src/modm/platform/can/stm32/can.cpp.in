@@ -391,7 +391,8 @@ modm::platform::Can{{ id }}::getMessage(can::Message& message, uint8_t *filter_i
 	}
 	else {
         auto& rxMessage = rxQueue.get();
-		memcpy(&message, &rxMessage.message, sizeof(message));
+		message = rxMessage.message;
+
         if(filter_id != nullptr) (*filter_id) = rxMessage.filter_id;
 		rxQueue.pop();
 		return true;
