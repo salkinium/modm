@@ -311,7 +311,7 @@ modm::platform::Can::getMessage(can::Message & message)
 		return false;
 	}
 	else {
-		memcpy(&message, &rxQueue.get(), sizeof(message));
+		message = rxQueue.get();
 		rxQueue.pop();
 
 		// Check for other messages in MOBs
