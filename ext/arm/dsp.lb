@@ -118,13 +118,12 @@ def build(env):
     for path in Path(localpath("cmsis-dsp/CMSIS-DSP/Include/")).iterdir():
         if path.is_file() and not ("_f16" in path.name and not env["with_f16"]):
             # We need to replace this file to include the <cmsis_dsp_local.h>
-            if path.name in ["arm_math_types.h", "arm_math.h", "arm_math_f16.h"]: continue;
+            if path.name in ["arm_math.h", "arm_math_f16.h"]: continue;
             env.copy(path, path.name)
 
     env.copy("cmsis-dsp/CMSIS-DSP/Include/dsp/none.h", "dsp/none.h")
     env.copy("cmsis-dsp/CMSIS-DSP/Include/dsp/utils.h", "dsp/utils.h")
     env.copy("cmsis-dsp/CMSIS-DSP/Include/dsp/debug.h", "dsp/debug.h")
-    env.copy("cmsis-dsp/CMSIS-DSP/Include/arm_math_types.h", "arm_math_types_internal.h")
 
     core = env[":target"].get_driver("core")["type"][8:]
     core = core.replace("+", "PLUS").replace("f", "").replace("d", "")
@@ -134,7 +133,6 @@ def build(env):
         "includes": includes,
         "with_fpu": env.get(":platform:cortex-m:float-abi", "soft") != "soft",
     }
-    env.template("arm_math_types.h.in")
     env.template("arm_math.h.in")
     if env["with_f16"]: env.template("arm_math_f16.h.in")
 

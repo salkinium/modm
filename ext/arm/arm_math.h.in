@@ -31,6 +31,13 @@ extern "C"
 {
 #endif
 
+#include <modm/platform/device.hpp>
+
+/* Local configuration file */
+#if __has_include(<arm_math_local.h>)
+#include <arm_math_local.h>
+#endif
+
 #include "arm_math_types.h"
 #include "arm_math_memory.h"
 

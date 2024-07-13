@@ -3,18 +3,20 @@
 This module provides the CMSIS-DSP library.
 Please [see the API documentation][docs] for details.
 
-Note that this module splits up the library into submodule to speed up
+Note:
+- The library should be accessed through the `arm_math.h` and `arm_math_f16.h`
+headers, as these include necessary configuration options.
+- This module splits up the library into submodules to speed up
 compilation by only including the math functions you really need.
-You can enable 16-bit floating point support separately via option.
+- You can enable 16-bit floating point support via the option `with_f16`.
 
 
 ## Configuration
 
 You can define your own configuration in the `<arm_math_local.h>` file which
-will automatically be included at the *beginning* of the `arm_math_types.h` file
-which is included by all CMSIS-DSP source files. This way changes to your
-CMSIS-DSP configuration will only affect its source files and not recompile your
-whole project.
+will automatically be included at the *beginning* of the `arm_math.h` and
+`arm_math_f16.h` files. This way changes to your CMSIS-DSP configuration will
+only affect its source files and not recompile your whole project.
 
 Example `<arm_math_local.h>` configuration:
 
