@@ -17,6 +17,7 @@ from os.path import join, relpath, isdir, exists
 def init(module):
     module.name = ":build:scons"
     module.description = FileReader("module.md")
+    module.order = 10000 # do project-wide file generation last
 
 
 def prepare(module, options):
@@ -207,7 +208,12 @@ def post_build(env):
             if nflag: return nflag;
         return '"{}"'.format(flag)
 
-    for repo in repositories:
+    # Generate SConscript files for each repository that doesn't already have one
+    repos_with_sconscript = set(op.repository for op in env.buildlog.operations
+                                if op.filename == f"{op.repository}/SConscript")
+    repos_without_sconscript = set(repositories) - repos_with_sconscript
+
+    for repo in repos_without_sconscript:
         files = []
         repo_filter = lambda scope: scope.repository == repo
         repo_flags = env.query("::collect_flags")(env, repo_filter)
@@ -237,7 +243,6 @@ def post_build(env):
             "is_modm": repo == "modm",
         })
 
-        # Generate library SConscript
         env.outbasepath = repo
         env.template("resources/SConscript.in", "SConscript",
                      filters={"flags_format": flags_format,
