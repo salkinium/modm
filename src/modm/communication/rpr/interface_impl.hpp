@@ -472,7 +472,7 @@ modm::rpr::Interface<Device, N>::popMessage(Queue &queue)
 		// deallocate the external buffer
 		Message message = queue.get();
 		MODM_RPR_LOG("deallocating");
-		bufferAllocator.deallocate(message.payload);
+		bufferAllocator.deallocate(message.payload, message.length);
 		// then remove the rest
 		queue.pop();
 	}

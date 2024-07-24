@@ -19,6 +19,7 @@
 namespace modm::allocator
 {
 
+// DEPRECATED: 2025q3
 /**
  * Base class for all allocator types
  *
@@ -66,6 +67,7 @@ protected:
     }
 };
 
+// DEPRECATED: 2025q3
 /**
  * Dynamic memory allocator
  *
@@ -76,7 +78,8 @@ protected:
  * @author  Fabian Greif
  */
 template <typename T>
-class Dynamic : public AllocatorBase<T>
+class [[deprecated("Please use std::allocator<T> instead!")]]
+Dynamic : public AllocatorBase<T>
 {
 public:
     template <typename U>

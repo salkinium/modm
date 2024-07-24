@@ -18,7 +18,7 @@
 #include <modm/architecture/utils.hpp>
 #include <modm/container/queue.hpp>
 #include <modm/processing/timer.hpp>
-#include <modm/utils/allocator/dynamic.hpp>
+#include <memory>
 
 #include "constants.hpp"
 
@@ -123,7 +123,7 @@ namespace modm
 			static Queue messagesToSend;
 			static Queue receivedMessages;
 
-			static modm::allocator::Dynamic<uint8_t> bufferAllocator;
+			static std::allocator<uint8_t> bufferAllocator;
 
 			static Message receiveBuffer;
 			static uint8_t rx_buffer[N+8];
