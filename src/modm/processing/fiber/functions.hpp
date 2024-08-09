@@ -53,7 +53,8 @@ yield();
 modm::fiber::id
 get_id();
 
-/// Yields the current fiber until `bool condition()` returns true.
+/// Yields the current fiber while `bool condition()` returns true.
+/// @warning If `bool condition()` is true on first call, no yield is performed!
 template< class Function >
 requires requires { std::is_invocable_r_v<bool, Function, void>; }
 void
@@ -67,6 +68,8 @@ poll(Function &&condition)
  * Yields the current fiber until `bool condition()` returns true or the time
  * duration has elapsed.
  *
+ * @warning If `bool condition()` is true on first call, no yield is performed!
+ *
  * @returns `true` if the condition was met, `false` if the time duration has
  *          elapsed.
  *
@@ -79,6 +82,8 @@ requires requires { std::is_invocable_r_v<bool, Function, void>; }
 bool
 poll_for(std::chrono::duration<Rep, Period> sleep_duration, Function &&condition)
 {
+	if (std::forward<Function>(condition)()) return true;
+
 	// Only choose the microsecond clock if necessary
 	using Clock = std::conditional_t<
 		std::is_convertible_v<std::chrono::duration<Rep, Period>,
@@ -87,8 +92,8 @@ poll_for(std::chrono::duration<Rep, Period> sleep_duration, Function &&condition
 
 	const auto start = Clock::now();
 	do {
-		if (std::forward<Function>(condition)()) return true;
 		modm::this_fiber::yield();
+		if (std::forward<Function>(condition)()) return true;
 	}
 	while((Clock::now() - start) <= sleep_duration);
 	return false;
@@ -97,6 +102,8 @@ poll_for(std::chrono::duration<Rep, Period> sleep_duration, Function &&condition
 /**
  * Yields the current fiber until `bool condition()` returns true or the sleep
  * time has been reached.
+ *
+ * @warning If `bool condition()` is true on first call, no yield is performed!
  *
  * @returns `true` if the condition was met, `false` if the sleep time has
  *          elapsed.
@@ -110,11 +117,13 @@ requires requires { std::is_invocable_r_v<bool, Function, void>; }
 bool
 poll_until(std::chrono::time_point<Clock, Duration> sleep_time, Function &&condition)
 {
+	if (std::forward<Function>(condition)()) return true;
+
 	const auto start = Clock::now();
 	const auto sleep_duration = sleep_time - start;
 	do {
-		if (std::forward<Function>(condition)()) return true;
 		modm::this_fiber::yield();
+		if (std::forward<Function>(condition)()) return true;
 	}
 	while((Clock::now() - start) <= sleep_duration);
 	return false;
