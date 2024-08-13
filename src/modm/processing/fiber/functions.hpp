@@ -90,12 +90,16 @@ poll_for(std::chrono::duration<Rep, Period> sleep_duration, Function &&condition
 							  std::chrono::duration<Rep, std::milli>>,
 		modm::chrono::milli_clock, modm::chrono::micro_clock>;
 
+	// Ensure the sleep duration is rounded up to the next full clock tick
+	const auto clock_sleep_duration(
+			std::chrono::ceil<typename Clock::duration>(sleep_duration));
+
 	const auto start = Clock::now();
 	do {
 		modm::this_fiber::yield();
 		if (std::forward<Function>(condition)()) return true;
 	}
-	while((Clock::now() - start) <= sleep_duration);
+	while((Clock::now() - start) < clock_sleep_duration);
 	return false;
 }
 
@@ -125,7 +129,7 @@ poll_until(std::chrono::time_point<Clock, Duration> sleep_time, Function &&condi
 		modm::this_fiber::yield();
 		if (std::forward<Function>(condition)()) return true;
 	}
-	while((Clock::now() - start) <= sleep_duration);
+	while((Clock::now() - start) < sleep_duration);
 	return false;
 }
 
