@@ -50,8 +50,8 @@ public:
 	initialize(Prescaler prescaler, uint16_t reload)
 	{
 		writeKey(writeCommand);
-		IWDG->PR = uint32_t(prescaler);
-		IWDG->RLR = reload;
+		IWDG{{core}}->PR = uint32_t(prescaler);
+		IWDG{{core}}->RLR = reload;
 		writeKey(0); // disable access to PR and RLR registers
 	}
 
@@ -82,14 +82,14 @@ public:
 	static inline Status
 	getStatus()
 	{
-		return Status(IWDG->SR);
+		return Status(IWDG{{core}}->SR);
 	}
 
 private:
 	static inline void
 	writeKey(uint16_t key)
 	{
-		IWDG->KR = key;
+		IWDG{{core}}->KR = key;
 	}
 
 	static constexpr uint16_t reloadCommand = 0xAAAA;

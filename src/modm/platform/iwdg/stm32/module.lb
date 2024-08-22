@@ -17,9 +17,6 @@ def init(module):
 
 def prepare(module, options):
     device = options[":target"]
-    # STM32H7 is not yet supported with any IWDG implementation
-    if device.identifier.family in ["h7"]:
-        return False
 
     module.depends(":cmsis:device", ":math:algorithm")
     return device.has_driver("iwdg:stm32")
@@ -27,4 +24,6 @@ def prepare(module, options):
 
 def build(env):
     env.outbasepath = "modm/src/modm/platform/iwdg"
-    env.copy("iwdg.hpp")
+    # FIXME: Use IWDG2 for second core on STM32H7x5
+    env.substitutions = {"core": 1 if env[":target"].identifier.family in ["h7"] else ""}
+    env.template("iwdg.hpp.in")
