@@ -17,6 +17,7 @@
 #ifndef MODM_SOFTWARE_BITBANG_SPI_MASTER_HPP
 #	error	"Don't include this file directly, use 'bitbang_spi_master.hpp' instead!"
 #endif
+#include <modm/processing/fiber.hpp>
 
 template <typename Sck, typename Mosi, typename Miso>
 uint16_t
@@ -84,6 +85,8 @@ template <typename Sck, typename Mosi, typename Miso>
 uint8_t
 modm::platform::BitBangSpiMaster<Sck, Mosi, Miso>::transferBlocking(uint8_t data)
 {
+	modm::this_fiber::yield();
+
 	for (uint_fast8_t ii = 0; ii < 8; ++ii)
 	{
 		// CPHA=1, sample on falling edge

@@ -18,6 +18,7 @@
 #ifndef MODM_SOFTWARE_BITBANG_I2C_HPP
 #	error	"Don't include this file directly, use 'bitbang_i2c_master.hpp' instead!"
 #endif
+#include <modm/processing/fiber.hpp>
 
 // debugging for serious dummies
 /*
@@ -314,6 +315,8 @@ template <class Scl, class Sda>
 bool
 modm::platform::BitBangI2cMaster<Scl, Sda>::write(uint8_t data)
 {
+	modm::this_fiber::yield();
+
 	DEBUG_SW_I2C('W');
 	// shift through all 8 bits
 	for(uint_fast8_t i = 0; i < 8; ++i)
@@ -359,6 +362,8 @@ template <class Scl, class Sda>
 bool
 modm::platform::BitBangI2cMaster<Scl, Sda>::read(uint8_t &data, bool ack)
 {
+	modm::this_fiber::yield();
+
 	DEBUG_SW_I2C('R');
 	// release data line
 	SDA::set();
