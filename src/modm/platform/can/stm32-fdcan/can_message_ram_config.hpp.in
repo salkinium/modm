@@ -1,0 +1,57 @@
+/*
+ * Copyright (c) 2024, Kaelin Laundry
+ *
+ * This file is part of the modm project.
+ *
+ * This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
+ */
+// ----------------------------------------------------------------------------
+
+
+#ifndef MODM_STM32_FDCAN_MESSAGE_RAM_CONFIG_HPP
+#define MODM_STM32_FDCAN_MESSAGE_RAM_CONFIG_HPP
+
+namespace modm::platform::fdcan
+{
+
+%% if target["family"] == "h7"
+{# Only the H7 series supports varying the size of FIFO entries in the message RAM. #}
+static constexpr uint32_t fifoElementSizeBytes = 2*MessageRamConfig::RamWordSize + modm::can::Message::capacity;
+%% else
+static constexpr uint32_t fifoElementSizeBytes = 2*MessageRamConfig::RamWordSize + 64;
+%% endif
+
+%% for instance in instances
+static constexpr MessageRamConfig Fdcan{{instance}}MessageRamConfig
+{
+	.filterCountStandard		= {{message_ram_options["fdcan"+(instance|string)+".message_ram.standard_filter_count"]}},
+	.filterCountExtended		= {{message_ram_options["fdcan"+(instance|string)+".message_ram.extended_filter_count"]}},
+	.rxFifo0Elements			= {{message_ram_options["fdcan"+(instance|string)+".message_ram.rx_fifo_0_elements"]}},
+	.rxFifo0ElementSizeBytes	= fifoElementSizeBytes,
+	.rxFifo1Elements			= {{message_ram_options["fdcan"+(instance|string)+".message_ram.rx_fifo_1_elements"]}},
+	.rxFifo1ElementSizeBytes	= fifoElementSizeBytes,
+    .rxBufferElements			= 0, // Unused
+	.rxBufferElementSizeBytes	= fifoElementSizeBytes,
+	.txEventFifoElements		= 3, // Currently unused but must be allocated for non-H7 series fixed layout
+    .txFifoElements				= {{message_ram_options["fdcan"+(instance|string)+".message_ram.tx_fifo_elements"]}},
+	.txFifoElementSizeBytes		= fifoElementSizeBytes,
+};
+%% endfor
+
+
+%% for instance in instances
+%% if loop.first
+static constexpr uint32_t Fdcan{{instance}}MessageRamBaseWords = 0;
+%% else
+static constexpr uint32_t Fdcan{{instance}}MessageRamBaseWords = Fdcan{{loop.previtem}}MessageRamBaseWords + Fdcan{{loop.previtem}}MessageRamConfig.totalSectionWords();
+%% endif
+
+static constexpr uint32_t Fdcan{{instance}}MessageRamBoundWords = Fdcan{{instance}}MessageRamBaseWords + Fdcan{{instance}}MessageRamConfig.totalSectionWords();
+
+static_assert(Fdcan{{instance}}MessageRamBoundWords <= {{message_ram_length_words}});
+%% endfor
+}  // modm::platform::fdcan
+
+#endif  // MODM_STM32_FDCAN_MESSAGE_RAM_CONFIG_HPP

@@ -448,7 +448,7 @@ public:
 	};
 %% endif
 
-%% if target.family in ["g4", "l5", "u5"]
+%% if target.family in ["g4", "l5", "u5", "h7"]
 	enum class
 	CanClockSource : uint32_t
 	{
@@ -462,6 +462,9 @@ public:
 %% elif target.family in ["u5"]
 		Pll1Q = 0b01 << RCC_{{ccipr1}}_FDCANSEL_Pos,
 		Pll2P = 0b10 << RCC_{{ccipr1}}_FDCANSEL_Pos,
+%% elif target.family in ["h7"]
+		Pll1Q = 0b01 << RCC_{{ccipr1}}_FDCANSEL_Pos,
+		Pll2Q = 0b10 << RCC_{{ccipr1}}_FDCANSEL_Pos,
 %% endif
 	};
 

@@ -105,6 +105,16 @@ def build(env):
     else:
         properties["cfgr2"] = "CFGR"
 
+    if target.family in ["h7"]:
+        if target.name in ["a3", "b0", "b3"]:
+            properties["ccipr1"] = "CDCCIP1R"
+        else:
+            properties["ccipr1"] = "D2CCIP1R"
+    elif target.family in ["l5", "u5"]:
+        properties["ccipr1"] = "CCIPR1"
+    else:
+        properties["ccipr1"] = "CCIPR"
+
     properties["d1"] = ("CD" if target.name in ["a0", "a3", "b0", "b3"] else "D1") \
                         if target.family == "h7" else ""
     properties["d2"] = ("CD" if target.name in ["a0", "a3", "b0", "b3"] else "D2") \
@@ -115,7 +125,6 @@ def build(env):
     properties["pll_ids"] = ["1", "2", "3"] if target.family in ["h7", "u5"] else [""]
     properties["has_smps"] = target["family"] == "h7" and (target["name"] in ["25", "35", "45", "47", "55", "57"] or \
         (target["name"] in ["30", "a3", "b0", "b3"] and target["variant"] == "q"))
-    properties["ccipr1"] = "CCIPR1" if target.family in ["l5", "u5"] else "CCIPR"
 
     flash_latencies = {}
     for vcore in device.get_driver("flash")["latency"]:

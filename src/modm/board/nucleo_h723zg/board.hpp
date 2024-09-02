@@ -30,9 +30,12 @@ using namespace modm::literals;
 /// STM32H723ZG running at 550MHz from PLL clock generated from 8 MHz HSE
 struct SystemClock
 {
+	static constexpr uint32_t Hse = 8_MHz;
+
 	// Max 550MHz
 	static constexpr uint32_t SysClk = 550_MHz;
 	static constexpr uint32_t Pll1Q = SysClk / 4;
+	static constexpr uint32_t Pll2Q = 120_MHz;
 	// Max 550MHz
 	static constexpr uint32_t Hclk = SysClk / 1; // D1CPRE
 	static constexpr uint32_t Frequency = Hclk;
@@ -74,8 +77,9 @@ struct SystemClock
 
 	static constexpr uint32_t LpUart1 = Apb4;
 
-	static constexpr uint32_t Can1 = Apb1;
-	static constexpr uint32_t Can2 = Apb1;
+	static constexpr uint32_t Fdcan1 = Pll2Q;
+	static constexpr uint32_t Fdcan2 = Pll2Q;
+	static constexpr uint32_t Fdcan3 = Pll2Q;
 
 	static constexpr uint32_t I2c1 = Apb1;
 	static constexpr uint32_t I2c2 = Apb1;
@@ -122,6 +126,19 @@ struct SystemClock
 			.pllR  = 2,		// 550 MHz / 2   = 275 MHz
 		};
 		Rcc::enablePll1(Rcc::PllSource::Hse, pllFactors1);
+
+		// Use PLL2 for FDCAN 120MHz
+		const Rcc::PllFactors pllFactors2{
+			.range = Rcc::PllInputRange::MHz1_2,
+			.pllM = 4,		//   8MHz / M=   2MHz
+			.pllN = 120,	//   2MHz * N= 240MHz
+			.pllP = 2,		// 240MHz / P= 120MHz
+			.pllQ = 2,		// 240MHz / Q= 120MHz
+			.pllR = 2,		// 240MHz / R= 120MHz
+		};
+		Rcc::enablePll2(Rcc::PllSource::ExternalClock, pllFactors2);
+		Rcc::setCanClockSource(Rcc::CanClockSource::Pll2Q);
+
 		// Use PLL3 for USB 48MHz
 		const Rcc::PllFactors pllFactors3{
 			.range = Rcc::PllInputRange::MHz4_8,

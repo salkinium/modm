@@ -18,7 +18,7 @@ def prepare(module, options):
     target = options[":target"]
 
     identifier = target.identifier
-    if identifier.platform != "stm32" or identifier.family != "g4":
+    if identifier.platform != "stm32" or identifier.family not in ("g4", "h7"):
         return False
 
     module.depends(":architecture:delay", ":platform:can:1")

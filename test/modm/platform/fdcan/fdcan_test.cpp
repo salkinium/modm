@@ -79,13 +79,13 @@ FdcanTest::testBuffers()
 			modm::can::ExtendedIdentifier(0),
 			modm::can::ExtendedMask(0));
 
-	// send (RxBufferSize + 2) messages, exceeds internal peripheral queue size (3
-	// msgs) as well as the software queue size, but not both added together. So
-	// no message should get lost.
-	const uint_fast16_t numberOfMsgs = Fdcan1::RxBufferSize + 2;
+	// send (RxBufferSize + HW FIFO size) messages. Exceeds internal peripheral
+	// queue size and software queue size individually, but not both added
+	// together. So no message should get lost.
+	const uint_fast16_t numberOfMsgs = Fdcan1::RxBufferSize + modm::platform::fdcan::Fdcan1MessageRamConfig.rxFifo1Elements;
 
 	modm::can::Message message{0x4711, 0};
-	for (uint_fast16_t i = 0; i <= numberOfMsgs; ++i) {
+	for (uint_fast16_t i = 0; i < numberOfMsgs; ++i) {
 		uint_fast8_t length = i % 8;
 		message.setLength(length);
 		for (uint_fast8_t dataIndex = 0; dataIndex < length; ++dataIndex) {
@@ -94,11 +94,11 @@ FdcanTest::testBuffers()
 		Fdcan1::sendMessage(message);
 	}
 
-	modm::delay_ms(10);
+	modm::delay_ms(20);
 
 	// try to receive same messages
 	modm::can::Message receivedMessage;
-	for (uint_fast16_t i = 0; i <= numberOfMsgs; ++i) {
+	for (uint_fast16_t i = 0; i < numberOfMsgs; ++i) {
 		TEST_ASSERT_TRUE(Fdcan1::getMessage(receivedMessage));
 
 		TEST_ASSERT_EQUALS(receivedMessage.getIdentifier(), 0x4711u);

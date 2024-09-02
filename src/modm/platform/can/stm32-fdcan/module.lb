@@ -4,6 +4,7 @@
 # Copyright (c) 2016-2018, Niklas Hauser
 # Copyright (c) 2017, Fabian Greif
 # Copyright (c) 2018, Christopher Durand
+# Copyright (c) 2024, Kaelin Laundry
 #
 # This file is part of the modm project.
 #
@@ -16,7 +17,15 @@ from collections import defaultdict
 
 global_properties = {}
 
-def load_options(module):
+message_ram_option_legacy_values = {
+    "message_ram.standard_filter_count": 28,
+    "message_ram.extended_filter_count": 8,
+    "message_ram.rx_fifo_0_elements": 3,
+    "message_ram.rx_fifo_1_elements": 3,
+    "message_ram.tx_fifo_elements": 3,
+}
+
+def load_options(module, options):
     module.add_option(
         NumericOption(
             name="buffer.tx",
@@ -29,6 +38,49 @@ def load_options(module):
             description="",
             minimum=1, maximum="64Ki-2",
             default=32))
+
+    supports_configurable_message_ram = options[":target"].identifier.family == "h7"
+
+    if supports_configurable_message_ram:
+        module.add_option(
+            NumericOption(
+                name="message_ram.standard_filter_count",
+                description="",
+                minimum=1,
+                maximum=128,
+                default=28))
+
+        module.add_option(
+            NumericOption(
+                name="message_ram.extended_filter_count",
+                description="",
+                minimum=1,
+                maximum=64,
+                default=8))
+
+        module.add_option(
+            NumericOption(
+                name="message_ram.rx_fifo_0_elements",
+                description="",
+                minimum=1,
+                maximum=64,
+                default=14))
+
+        module.add_option(
+            NumericOption(
+                name="message_ram.rx_fifo_1_elements",
+                description="",
+                minimum=1,
+                maximum=64,
+                default=14))
+
+        module.add_option(
+            NumericOption(
+                name="message_ram.tx_fifo_elements",
+                description="",
+                minimum=1,
+                maximum=32,
+                default=14))
 
 def get_shared_irq(device, irq):
     irqs = [v["name"] for v in device.get_driver("core")["vector"]]
@@ -46,7 +98,7 @@ class Instance(Module):
         module.description = "Instance {}".format(self.instance)
 
     def prepare(self, module, options):
-        load_options(module)
+        load_options(module, options)
         return True
 
     def build(self, env):
@@ -62,6 +114,8 @@ class Instance(Module):
         properties["shared_irq_it0"] = False
         properties["shared_irq_it1"] = False
 
+        global_properties["instances"].append(self.instance)
+
         if device.identifier.family == "g0":
             shared_irq_it0 = get_shared_irq(device, "FDCAN_IT0")
             properties["shared_irq_it0"] = shared_irq_it0
@@ -69,6 +123,12 @@ class Instance(Module):
             shared_irq_it1 = get_shared_irq(device, "FDCAN_IT1")
             properties["shared_irq_it1"] = shared_irq_it1
             global_properties["shared_irqs"][shared_irq_it1].append([self.instance, "IT1"])
+
+
+        for option in message_ram_option_legacy_values.keys():
+            if env.has_option(option):
+                value = env[option]
+                global_properties["message_ram_options"][f"fdcan{self.instance}.{option}"] = value
 
         env.substitutions = properties
         env.outbasepath = "modm/src/modm/platform/can"
@@ -83,7 +143,7 @@ def init(module):
 
 def prepare(module, options):
     device = options[":target"]
-    if not device.has_driver("fdcan:stm32"):
+    if not device.has_driver("fdcan:stm32*"):
         return False
 
     module.depends(
@@ -96,23 +156,43 @@ def prepare(module, options):
         ":cmsis:device",
         ":debug",
         ":platform:can.common",
+        ":platform:can.common.fdcan",
         ":platform:gpio",
         ":platform:rcc",
         ":utils")
 
+    driver = device.get_driver("fdcan")
+
     global_properties["shared_irqs"] = defaultdict(list)
 
-    driver = device.get_driver("fdcan")
+    global_properties["instances"] = []
+
+    global_properties["message_ram_options"] = {}
+    global_properties["message_ram_length_words"] = 2560 if device.identifier.family == "h7" else (212 * len(driver["instance"]))
 
     for instance in listify(driver["instance"]):
         module.add_submodule(Instance(int(instance)))
 
+        for option, legacy_value in message_ram_option_legacy_values.items():
+            global_properties["message_ram_options"][f"fdcan{instance}.{option}"] = legacy_value
+
     return True
 
 def build(env):
+    device = env[":target"]
     env.substitutions.update(global_properties)
+    env.substitutions["target"] = device.identifier
+
+    supports_configurable_message_ram = device.identifier.family == "h7"
+
+    if not supports_configurable_message_ram:
+        # fixed message RAM devices have all instances blocked out in the message RAM even if not enabled
+        driver = device.get_driver("fdcan")
+        env.substitutions["instances"] = driver["instance"]
+    env.substitutions["instances"].sort()
+
     env.outbasepath = "modm/src/modm/platform/can"
 
-    env.copy("message_ram.hpp")
+    env.template("can_message_ram_config.hpp.in")
     if len(global_properties["shared_irqs"]) > 0:
         env.template("can_shared_irqs.cpp.in")

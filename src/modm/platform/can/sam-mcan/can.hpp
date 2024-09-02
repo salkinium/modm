@@ -21,6 +21,7 @@
 #include "can_bit_timings.hpp"
 
 #include "message_ram.hpp"
+#include "can_message_ram_defaults.hpp"
 
 namespace modm::platform
 {
@@ -83,16 +84,9 @@ private:
 	always_false_v = false;
 
 	using MessageRam = fdcan::MessageRam<id, mrc>;
-	static_assert(MessageRam::StandardFilterCount <= 128, "A maximum of 128 standard filters are allowed.");
-	static_assert(MessageRam::ExtendedFilterCount <= 64, "A maximum of 64 standard filters are allowed.");
-	static_assert(MessageRam::RxFifo0Elements <= 64, "A maximum of 64 Rx Fifo 0 elements are allowed.");
-	static_assert(MessageRam::RxFifo1Elements <= 64, "A maximum of 64 Rx Fifo 1 elements are allowed.");
-	static_assert(MessageRam::RxBufferElements <= 64, "A maximum of 64 dedicated Rx buffers are allowed.");
-	static_assert(MessageRam::TxEventFifoEntries <= 32, "A maximum of 32 Tx Event Fifo elements are allowed.");
-	static_assert(MessageRam::TxFifoElements <= 32, "A maximum of 32 Tx Fifo elements are allowed.");
-	static_assert(MessageRam::Size <= 4352*4, "Max message ram size is 4352 words.");
+	static_assert(mrc.totalSectionWords() <= 4352, "Max message ram size is 4352 words.");
 
-	static inline std::array<uint32_t, MessageRam::Size/4> modm_aligned(4)
+	static inline std::array<uint32_t, mrc.totalSectionWords()> modm_aligned(4)
 	messageRamMemory{};
 
 	struct RxMessage

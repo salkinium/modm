@@ -26,7 +26,9 @@
 
 namespace {
 
-using MessageRam = modm::platform::fdcan::MessageRam<{{ id - 1 }}>;
+using MessageRam = modm::platform::fdcan::MessageRam<
+	{{ id - 1 }},
+	modm::platform::fdcan::Fdcan{{id}}MessageRamConfig>;
 
 %% if options["buffer.tx"] > 0
 modm::atomic::Queue<modm::can::Message, {{ options["buffer.tx"] }}> txQueue;
@@ -192,13 +194,71 @@ modm::platform::Fdcan{{ id }}::initializeWithPrescaler(
 
 	configureInterrupts(interruptPriority);
 
+	// Select RX FIFO blocking/overwrite mode
+%% if target["family"] == "h7"
+	{{ reg }}->RXF0C = overwriteOnOverrun ? FDCAN_RXF0C_F0OM : 0;
+	{{ reg }}->RXF1C = overwriteOnOverrun ? FDCAN_RXF1C_F1OM : 0;
+%% else
 	{{ reg }}->RXGFC = overwriteOnOverrun ? (FDCAN_RXGFC_F1OM | FDCAN_RXGFC_F0OM) : 0;
+%% endif
 
-	// enable all filters, reject non-matching frames
-	{{ reg }}->RXGFC |= FDCAN_RXGFC_LSE | FDCAN_RXGFC_LSS | FDCAN_RXGFC_ANFE | FDCAN_RXGFC_ANFS;
+	// reject non-matching frames
+%% if target["family"] == "h7"
+	{{ reg }}->GFC |= FDCAN_GFC_ANFE | FDCAN_GFC_ANFS;
+%% else
+	{{ reg }}->RXGFC |= FDCAN_RXGFC_ANFE | FDCAN_RXGFC_ANFS;
+%% endif
+
+	auto const messageRamBaseWords = modm::platform::fdcan::Fdcan{{id}}MessageRamBaseWords;
+	auto const messageRamBoundWords = modm::platform::fdcan::Fdcan{{id}}MessageRamBoundWords;
+
+	static_assert(messageRamBaseWords + MessageRam::Config.totalSectionWords() <= messageRamBoundWords);
+	static_assert(MessageRam::Config.txFifoSectionOffset() + MessageRam::Config.txFifoSectionWords() == MessageRam::Config.totalSectionWords());
+
+	MessageRam::setRamBase(SRAMCAN_BASE + (messageRamBaseWords * MessageRam::RamWordSize));
+
+%% if target["family"] == "h7"
+	// Configure number of elements in each RAM section
+	{{ reg }}->SIDFC |= MessageRam::Config.filterCountStandard << FDCAN_SIDFC_LSS_Pos;
+	{{ reg }}->XIDFC |= MessageRam::Config.filterCountExtended << FDCAN_XIDFC_LSE_Pos;
+	{{ reg }}->RXF0C |= MessageRam::Config.rxFifo0Elements << FDCAN_RXF0C_F0S_Pos;
+	{{ reg }}->RXF1C |= MessageRam::Config.rxFifo1Elements << FDCAN_RXF1C_F1S_Pos;
+	// NB: RX buffer has no size configuration register; a write index is put
+	// into filter settings if desired. We don't support RX buffers.
+	{{ reg }}->TXEFC |= MessageRam::Config.txEventFifoElements << FDCAN_TXEFC_EFS_Pos;
+	{{ reg }}->TXBC |= (MessageRam::Config.txFifoElements << FDCAN_TXBC_TFQS_Pos) | (0 << FDCAN_TXBC_NDTB_Pos);
+	// Trigger memory elements unused, left at 0 (only supported on FDCAN1)
+	// {{ reg }}->TTTMC |= 0 << FDCAN_TTTMC_TME_Pos;
+
+	// Configure number of message data bytes stored in each message entry (maximum length)
+	{{ reg }}->TXESC |= fdcan::elementSizeToSetting<MessageRam::Config.txFifoElementSizeBytes>() << FDCAN_TXESC_TBDS_Pos;
+	{{ reg }}->RXESC |=
+		(fdcan::elementSizeToSetting<MessageRam::Config.rxBufferElementSizeBytes>() << FDCAN_RXESC_RBDS_Pos)
+		| (fdcan::elementSizeToSetting<MessageRam::Config.rxFifo0ElementSizeBytes>() << FDCAN_RXESC_F0DS_Pos)
+		| (fdcan::elementSizeToSetting<MessageRam::Config.rxFifo1ElementSizeBytes>() << FDCAN_RXESC_F1DS_Pos);
+
+	// Configure base address of each RAM section
+	{{ reg }}->SIDFC |= (messageRamBaseWords + MessageRam::Config.standardFilterListSectionOffset()) << FDCAN_SIDFC_FLSSA_Pos;
+	{{ reg }}->XIDFC |= (messageRamBaseWords + MessageRam::Config.extendedFilterListSectionOffset()) << FDCAN_XIDFC_FLESA_Pos;
+	{{ reg }}->RXF0C |= (messageRamBaseWords + MessageRam::Config.rxFifo0SectionOffset()) << FDCAN_RXF0C_F0SA_Pos;
+	{{ reg }}->RXF1C |= (messageRamBaseWords + MessageRam::Config.rxFifo1SectionOffset()) << FDCAN_RXF1C_F1SA_Pos;
+	{{ reg }}->RXBC |= (messageRamBaseWords + MessageRam::Config.rxBufferSectionOffset()) << FDCAN_RXBC_RBSA_Pos;
+	{{ reg }}->TXEFC |= (messageRamBaseWords + MessageRam::Config.txEventSectionOffset()) << FDCAN_TXEFC_EFSA_Pos;
+	{{ reg }}->TXBC |= (messageRamBaseWords + MessageRam::Config.txFifoSectionOffset()) << FDCAN_TXBC_TBSA_Pos;
+	// {{ reg }}->TTTMC |= 0 << FDCAN_TTTMC_TMSA_Pos;
+
+%% else
+	%# Series other than STM32H7 have a fixed message RAM layout.
+
+	// NB: Before STM32H7, LSS and LSE determined the number of enabled filters;
+	// other filters were present but ignored. In STM32H7, LSS and LSE determine
+	// how many filters are present in the RAM. For pre-STM32H7 series we use
+	// the max value and zero out (disable) all filters on initialization.
+	{{ reg }}->RXGFC |= (MessageRam::Config.filterCountStandard << FDCAN_RXGFC_LSS_Pos) | (MessageRam::Config.filterCountExtended << FDCAN_RXGFC_LSE_Pos);
+%%endif
 
 	// Tx buffer: queue mode
-	{{ reg }}->TXBC = FDCAN_TXBC_TFQM;
+	{{ reg }}->TXBC |= FDCAN_TXBC_TFQM;
 
 	// Enable bit rate switching and CANFD frame format
 	if(fdDataTimings) {
@@ -344,7 +404,12 @@ modm::platform::Fdcan{{ id }}::configureInterrupts(uint32_t interruptPriority)
 	// enable both interrupts lines (0 and 1)
 	{{ reg }}->ILE = FDCAN_ILE_EINT1 | FDCAN_ILE_EINT0;
 	// assign receive interrupts to line 1
+
+%% if target["family"] == "h7"
+	{{ reg }}->ILS = (FDCAN_ILS_RF0NL | FDCAN_ILS_RF1NL);
+%% else
 	{{ reg }}->ILS = (FDCAN_ILS_RXFIFO0 | FDCAN_ILS_RXFIFO1);
+%% endif
 
 	{{ reg }}->IE = 0;
 %% if options["buffer.tx"] > 0
@@ -487,7 +552,7 @@ modm::platform::Fdcan{{ id }}::setStandardFilter(
 	modm::can::StandardIdentifier id,
 	modm::can::StandardMask mask)
 {
-	if (standardIndex >= StandardFilterCount) {
+	if (standardIndex >= MessageRam::Config.filterCountStandard) {
 		return false;
 	}
 
@@ -507,7 +572,7 @@ modm::platform::Fdcan{{ id }}::setStandardFilter(
 	modm::can::StandardIdentifier id0,
 	modm::can::StandardIdentifier id1)
 {
-	if (standardIndex >= StandardFilterCount) {
+	if (standardIndex >= MessageRam::Config.filterCountStandard) {
 		return false;
 	}
 
@@ -527,7 +592,7 @@ modm::platform::Fdcan{{ id }}::setStandardRangeFilter(
 	modm::can::StandardIdentifier first,
 	modm::can::StandardIdentifier last)
 {
-	if (standardIndex >= StandardFilterCount) {
+	if (standardIndex >= MessageRam::Config.filterCountStandard) {
 		return false;
 	}
 
@@ -547,7 +612,7 @@ modm::platform::Fdcan{{ id }}::setExtendedFilter(
 	modm::can::ExtendedIdentifier id,
 	modm::can::ExtendedMask mask)
 {
-	if (extendedIndex >= ExtendedFilterCount) {
+	if (extendedIndex >= MessageRam::Config.filterCountExtended) {
 		return false;
 	}
 
@@ -568,7 +633,7 @@ modm::platform::Fdcan{{ id }}::setExtendedFilter(
 	modm::can::ExtendedIdentifier id0,
 	modm::can::ExtendedIdentifier id1)
 {
-	if (extendedIndex >= ExtendedFilterCount) {
+	if (extendedIndex >= MessageRam::Config.filterCountExtended) {
 		return false;
 	}
 
@@ -589,7 +654,7 @@ modm::platform::Fdcan{{ id }}::setExtendedRangeFilter(
 	modm::can::ExtendedIdentifier first,
 	modm::can::ExtendedIdentifier last)
 {
-	if (extendedIndex >= ExtendedFilterCount) {
+	if (extendedIndex >= MessageRam::Config.filterCountExtended) {
 		return false;
 	}
 
@@ -608,7 +673,7 @@ void
 modm::platform::Fdcan{{ id }}::clearStandardFilters()
 {
 	EnterInitMode init;
-	for (unsigned i = 0; i < StandardFilterCount; ++i) {
+	for (unsigned i = 0; i < MessageRam::Config.filterCountStandard; ++i) {
 		MessageRam::setStandardFilterDisabled(i);
 	}
 }
@@ -618,7 +683,7 @@ void
 modm::platform::Fdcan{{ id }}::clearExtendedFilters()
 {
 	EnterInitMode init;
-	for (unsigned i = 0; i < ExtendedFilterCount; ++i) {
+	for (unsigned i = 0; i < MessageRam::Config.filterCountExtended; ++i) {
 		MessageRam::setExtendedFilterDisabled(i);
 	}
 }

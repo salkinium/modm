@@ -56,6 +56,7 @@ def prepare(module, options):
         ":architecture:clock",
         ":cmsis:device",
         ":platform:can.common",
+        ":platform:can.common.fdcan",
         ":platform:gpio")
 
     driver = device.get_driver("mcan")
@@ -72,4 +73,4 @@ def build(env):
     env.outbasepath = "modm/src/modm/platform/can"
     env.copy("can.hpp")
     env.copy("can_impl.hpp")
-    env.copy("message_ram.hpp")
+    env.copy("can_message_ram_defaults.hpp")

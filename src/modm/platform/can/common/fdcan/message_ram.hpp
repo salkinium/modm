@@ -2,6 +2,7 @@
  * Copyright (c) 2019, 2023, Raphael Lehmann
  * Copyright (c) 2021, Christopher Durand
  * Copyright (c) 2022, Rasmus Kleist Hørlyck Sørensen
+ * Copyright (c) 2024, Kaelin Laundry
  *
  * This file is part of the modm project.
  *
@@ -16,6 +17,7 @@
 #include <cstdint>
 #include <concepts>
 #include <span>
+#include <tuple>
 
 #include <modm/math/utils/bit_constants.hpp>
 #include <modm/architecture/interface/register.hpp>
@@ -25,41 +27,100 @@
 namespace modm::platform::fdcan
 {
 
+// Convert message RAM element size to setting bits in RXESC/TXESC registers
+template<int size>
+constexpr unsigned elementSizeToSetting()
+{
+	constexpr std::array settings = {
+		8,  // 000
+		12, // 001
+		16, // 010
+		20, // 011
+		24, // 100
+		32, // 101
+		48, // 110
+		64  // 111
+	};
 
+	// needed for the function to be constexpr
+	const auto index = [](auto& range, auto value) -> std::optional<int> {
+		const auto it = std::ranges::find(range, value);
+		if (it == std::end(range))
+			return std::nullopt;
+		return it - std::begin(range);
+	};
+
+	constexpr int headerSize = 8;
+	constexpr auto setting = index(settings, size - headerSize);
+	static_assert(setting, "Invalid message ram element size");
+
+	return setting.value();
+}
+
+/// Internal configuration for MessageRam. The CAN peripheral driver is expected
+/// to configure the CAN core to match these settings before using the message
+/// RAM. On SAM and the STM32H7 series, these values are dynamically configurable.
+/// On other STM32 FDCAN implementations, they are fixed in hardware.
 struct MessageRamConfig
 {
 	uint32_t filterCountStandard;
 	uint32_t filterCountExtended;
 	uint32_t rxFifo0Elements;
-	uint32_t rxFifo0ElementSize;
+	uint32_t rxFifo0ElementSizeBytes;
 	uint32_t rxFifo1Elements;
-	uint32_t rxFifo1ElementSize;
+	uint32_t rxFifo1ElementSizeBytes;
 	uint32_t rxBufferElements;
-	uint32_t rxBufferElementSize;
-	uint32_t txEventFifoEntries;
+	uint32_t rxBufferElementSizeBytes;
+	uint32_t txEventFifoElements;
 	uint32_t txFifoElements;
-	uint32_t txFifoElementSize;
-};
+	uint32_t txFifoElementSizeBytes;
+	// Triggers unused, skipped
 
-constexpr MessageRamConfig defaultMessageRamConfig
-{
-	.filterCountStandard 	= 8,
-	.filterCountExtended	= 8,
-	.rxFifo0Elements		= 32,
-	.rxFifo0ElementSize		= 2*4 + modm::can::Message::capacity,
-	.rxFifo1Elements		= 32,
-	.rxFifo1ElementSize		= 2*4 + modm::can::Message::capacity,
-	.rxBufferElements		= 0,
-	.rxBufferElementSize	= 2*4 + modm::can::Message::capacity,
-	.txEventFifoEntries		= 0,
-	.txFifoElements			= 32,
-	.txFifoElementSize		= 2*4 + modm::can::Message::capacity,
+
+	static constexpr uint32_t RamWordSize = 4;
+
+	// Size of message RAM elements of each type
+	constexpr uint32_t standardFilterWords() const { return 1; }
+	constexpr uint32_t extendedFilterWords() const { return 2; }
+	constexpr uint32_t rxFifo0ElementWords() const { return rxFifo0ElementSizeBytes/RamWordSize; }
+	constexpr uint32_t rxFifo1ElementWords() const { return rxFifo1ElementSizeBytes/RamWordSize; }
+	constexpr uint32_t rxBufferElementWords() const { return rxBufferElementSizeBytes/RamWordSize; }
+	constexpr uint32_t txEventElementWords() const { return 2; }
+	constexpr uint32_t txFifoElementWords() const { return txFifoElementSizeBytes/RamWordSize; }
+
+	// Total size of each message RAM section
+	constexpr uint32_t standardFilterListSectionWords() const { return filterCountStandard * standardFilterWords(); }
+	constexpr uint32_t extendedFilterListSectionWords() const { return filterCountExtended * extendedFilterWords(); }
+	constexpr uint32_t rxFifo0SectionWords() const { return rxFifo0Elements * rxFifo0ElementWords(); }
+	constexpr uint32_t rxFifo1SectionWords() const { return rxFifo1Elements * rxFifo1ElementWords(); }
+	constexpr uint32_t rxBufferSectionWords() const { return rxBufferElements * rxBufferElementWords(); }
+	constexpr uint32_t txEventSectionWords() const { return txEventFifoElements * txEventElementWords(); }
+	constexpr uint32_t txFifoSectionWords() const { return txFifoElements * txFifoElementWords(); }
+
+	constexpr uint32_t totalSectionWords() const {
+		return standardFilterListSectionWords()
+			+ extendedFilterListSectionWords()
+			+ rxFifo0SectionWords()
+			+ rxFifo1SectionWords()
+			+ rxBufferSectionWords()
+			+ txEventSectionWords()
+			+ txFifoSectionWords();
+	}
+
+	// Offsets of each message RAM section from the instance's assigned base
+	constexpr uint32_t standardFilterListSectionOffset() const { return 0; }
+	constexpr uint32_t extendedFilterListSectionOffset() const { return standardFilterListSectionOffset() + standardFilterListSectionWords(); }
+	constexpr uint32_t rxFifo0SectionOffset() const { return extendedFilterListSectionOffset() + extendedFilterListSectionWords(); }
+	constexpr uint32_t rxFifo1SectionOffset() const { return rxFifo0SectionOffset() + rxFifo0SectionWords(); }
+	constexpr uint32_t rxBufferSectionOffset() const { return rxFifo1SectionOffset() + rxFifo1SectionWords(); }
+	constexpr uint32_t txEventSectionOffset() const { return rxBufferSectionOffset() + rxBufferSectionWords(); }
+	constexpr uint32_t txFifoSectionOffset() const { return txEventSectionOffset() + txEventSectionWords(); }
 };
 
 /// Internal class to manage FDCAN message ram
 /// \tparam InstanceIndex index of FDCAN instance (starts at 0)
 /// \tparam Config configuration of the Tx/Rx/Filter/... buffer sizes
-template<uint8_t InstanceIndex, MessageRamConfig config = defaultMessageRamConfig>
+template<uint8_t InstanceIndex, MessageRamConfig config>
 class MessageRam
 {
 public:
@@ -124,30 +185,24 @@ public:
 		Reject		= 0b011u << 27
 	};
 public:
-	static constexpr uint32_t StandardFilterCount 	= config.filterCountStandard;
-	static constexpr uint32_t StandardFilterSize	= 1*4;
-	static constexpr uint32_t ExtendedFilterCount	= config.filterCountExtended;
-	static constexpr uint32_t ExtendedFilterSize	= 2*4;
-	static constexpr uint32_t RxFifo0Elements		= config.rxFifo0Elements;
-	static constexpr uint32_t RxFifo0ElementSize	= config.rxFifo0ElementSize;
-	static constexpr uint32_t RxFifo1Elements		= config.rxFifo1Elements;
-	static constexpr uint32_t RxFifo1ElementSize	= config.rxFifo1ElementSize;
-	static constexpr uint32_t RxBufferElements		= config.rxBufferElements;
-	static constexpr uint32_t RxBufferElementSize	= config.rxBufferElementSize;
-	static constexpr uint32_t TxEventFifoEntries	= config.txEventFifoEntries;
-	static constexpr uint32_t TxEventFifoEntrySize	= 2*4;
-	static constexpr uint32_t TxFifoElements		= config.txFifoElements;
-	static constexpr uint32_t TxFifoElementSize		= config.txFifoElementSize;
+	static constexpr MessageRamConfig Config = config;
 
-	/// Total message ram size in bytes
-	static constexpr uint32_t Size =
-		(StandardFilterCount * StandardFilterSize) +
-		(ExtendedFilterCount * ExtendedFilterSize) +
-		(RxFifo0Elements * RxFifo0ElementSize) +
-		(RxFifo1Elements * RxFifo1ElementSize) +
-		(RxBufferElements * RxBufferElementSize) +
-		(TxEventFifoEntries * TxEventFifoEntrySize) +
-		(TxFifoElements * TxFifoElementSize);
+	static constexpr uint32_t StandardFilterCount 	= config.filterCountStandard;
+	static constexpr uint32_t StandardFilterSize	= config.standardFilterWords();
+	static constexpr uint32_t ExtendedFilterCount	= config.filterCountExtended;
+	static constexpr uint32_t ExtendedFilterSize	= config.extendedFilterWords();
+	static constexpr uint32_t RxFifo0Elements		= config.rxFifo0Elements;
+	static constexpr uint32_t RxFifo0ElementSize	= config.rxFifo0ElementWords();
+	static constexpr uint32_t RxFifo1Elements		= config.rxFifo1Elements;
+	static constexpr uint32_t RxFifo1ElementSize	= config.rxFifo1ElementWords();
+	static constexpr uint32_t RxBufferElements		= config.rxBufferElements;
+	static constexpr uint32_t RxBufferElementSize	= config.rxBufferElementWords();
+	static constexpr uint32_t TxEventFifoElements	= config.txEventFifoElements;
+	static constexpr uint32_t TxEventFifoEntrySize	= config.txEventElementWords();
+	static constexpr uint32_t TxFifoElements		= config.txFifoElements;
+	static constexpr uint32_t TxFifoElementSize		= config.txFifoElementWords();
+
+	static constexpr uint32_t RamWordSize = MessageRamConfig::RamWordSize;
 
 	// InstanceIndex is not really used (anymore), but needed to have a unique MessageRam<> type for
 	// each CAN peripheral
@@ -155,22 +210,29 @@ public:
 	static void setRamBase(uintptr_t address) { RamBase = address; }
 	static uintptr_t getRamBase() { return RamBase; }
 
-	static constexpr uintptr_t FilterListStandardOffset = 0;
-	static constexpr uintptr_t FilterListExtendedOffset = FilterListStandardOffset + (StandardFilterCount * StandardFilterSize);
-	static constexpr uintptr_t RxFifo0Offset = FilterListExtendedOffset + (ExtendedFilterCount * ExtendedFilterSize);
-	static constexpr uintptr_t RxFifo1Offset = RxFifo0Offset + (RxFifo0Elements * RxFifo0ElementSize);
-	static constexpr uintptr_t RxBufferOffset = RxFifo1Offset + (RxFifo1Elements * RxFifo1ElementSize);
-	static constexpr uintptr_t TxEventFifoOffset = RxBufferOffset + (RxBufferElements * RxBufferElementSize);
-	static constexpr uintptr_t TxFifoOffset = TxEventFifoOffset + (TxEventFifoEntries * TxEventFifoEntrySize);
+	static uintptr_t FilterListStandard() { return getRamBase() + (config.standardFilterListSectionOffset() * RamWordSize); }
+	static uintptr_t FilterListExtended() { return getRamBase() + (config.extendedFilterListSectionOffset() * RamWordSize); }
+	static uintptr_t RxFifo0() { return getRamBase() + (config.rxFifo0SectionOffset() * RamWordSize); }
+	static uintptr_t RxFifo1() { return getRamBase() + (config.rxFifo1SectionOffset() * RamWordSize); }
+	static uintptr_t RxBuffer() { return getRamBase() + (config.rxBufferSectionOffset() * RamWordSize); }
+	static uintptr_t TxEventFifo() { return getRamBase() + (config.txEventSectionOffset() * RamWordSize); }
+	static uintptr_t TxFifo() { return getRamBase() + (config.txFifoSectionOffset() * RamWordSize); }
 
+	static_assert(StandardFilterCount <= 128, "A maximum of 128 standard filters are allowed.");
+	static_assert(ExtendedFilterCount <= 64, "A maximum of 64 standard filters are allowed.");
+	static_assert(RxFifo0Elements <= 64, "A maximum of 64 Rx Fifo 0 elements are allowed.");
+	static_assert(RxFifo1Elements <= 64, "A maximum of 64 Rx Fifo 1 elements are allowed.");
+	static_assert(RxBufferElements <= 64, "A maximum of 64 dedicated Rx buffers are allowed.");
+	static_assert(TxEventFifoElements<= 32, "A maximum of 32 Tx Event Fifo elements are allowed.");
+	static_assert(TxFifoElements <= 32, "A maximum of 32 Tx Fifo elements are allowed.");
 
-	static uintptr_t FilterListStandard() { return getRamBase() + FilterListStandardOffset; }
-	static uintptr_t FilterListExtended() { return getRamBase() + FilterListExtendedOffset; }
-	static uintptr_t RxFifo0() { return getRamBase() + RxFifo0Offset; }
-	static uintptr_t RxFifo1() { return getRamBase() + RxFifo1Offset; }
-	static uintptr_t RxBuffer() { return getRamBase() + RxBufferOffset; }
-	static uintptr_t TxEventFifo() { return getRamBase() + TxEventFifoOffset; }
-	static uintptr_t TxFifo() { return getRamBase() + TxFifoOffset; }
+	/// \returns pointer to specified word in the message RAM, taken as relative
+	/// to the start of this instance's chunk of the RAM
+	static uint32_t*
+	messageRamWord(uintptr_t base, uint32_t instanceRelativeWordIndex)
+	{
+		return reinterpret_cast<uint32_t*>(base + (instanceRelativeWordIndex * RamWordSize));
+	}
 
 	/// Address of element in RX FIFO
 	struct RxFifoAddress
@@ -179,15 +241,12 @@ public:
 		uint8_t getIndex;
 
 		/// \returns pointer to RX fifo element
-		uint32_t*
-		ptr() const
+		uint32_t* ptr() const
 		{
 			if (fifoIndex == 0)
-				return reinterpret_cast<uint32_t*>(RxFifo0() +
-												   (getIndex * RxFifo0ElementSize));
+				return messageRamWord(RxFifo0(), getIndex * RxFifo0ElementSize);
 			else
-				return reinterpret_cast<uint32_t*>(RxFifo1() +
-												   (getIndex * RxFifo1ElementSize));
+				return messageRamWord(RxFifo1(), getIndex * RxFifo1ElementSize);
 		}
 	};
 
@@ -195,24 +254,21 @@ public:
 	static uint32_t*
 	txFifoElement(uint8_t putIndex)
 	{
-		return reinterpret_cast<uint32_t*>(getRamBase() + TxFifoOffset +
-										   (putIndex * TxFifoElementSize));
+		return messageRamWord(TxFifo(), putIndex * TxFifoElementSize);
 	}
 
 	/// \returns pointer to standard filter element
 	static uint32_t*
 	standardFilter(uint8_t index)
 	{
-		const auto address = getRamBase() + FilterListStandardOffset + (index * StandardFilterSize);
-		return reinterpret_cast<uint32_t*>(address);
+		return messageRamWord(FilterListStandard(), index * StandardFilterSize);
 	}
 
 	/// \returns pointer to extended filter element
 	static uint32_t*
 	extendedFilter(uint8_t index)
 	{
-		const auto address = getRamBase() + FilterListExtendedOffset + (index * ExtendedFilterSize);
-		return reinterpret_cast<uint32_t*>(address);
+		return messageRamWord(FilterListExtended(), index * ExtendedFilterSize);
 	}
 public:
 	/// Write TX element headers to TX queue

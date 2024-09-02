@@ -23,6 +23,7 @@
 
 #include "can_bit_timings.hpp"
 #include "message_ram.hpp"
+#include "can_message_ram_config.hpp"
 
 namespace modm::platform
 {
@@ -33,18 +34,47 @@ namespace modm::platform
  * a shared Message RAM memory and a configuration block.
  * The modules (FDCAN) are compliant with ISO 11898-1: 2015 (CAN protocol
  * specification version 2.0 part A, B) and CAN FD protocol specification version 1.0.
- * A 0.8 Kbyte Message RAM per FDCAN instance implements filters, receive FIFOs,
- * transmit event FIFOs and transmit FIFOs.
+ * A Message RAM implements filters, receive FIFOs, transmit event FIFOs and
+ * transmit FIFOs. The RAM is 0.8 Kbyte per FDCAN instance, except for the H7
+ * series, which has 10 Kbytes of total message RAM arbitrarily split between
+ * FDCAN instances.
+ *
+ * This driver supports SW-managed/in-memory FIFOs which augment the hardware TX
+ * and RX FIFOs. Note that the HW TX queue is set to "queue mode" (not "FIFO mode").
+ * This means CAN messages are popped from the in-memory FIFO in order of addition
+ * but arbitrated according to ID priority within the HW queue.
  *
  * ## Filter
+%% if target["family"] == "h7"
+ * Up to 128 filters can be defined for 11-bit IDs, up to 64 filters for 29-bit IDs.
+ * Space for these filters must be allocated in the message RAM via the parameters
+ * described below.
+%% else
  * Up to 28 filters can be defined for 11-bit IDs, up to 8 filters for 29-bit IDs.
+%% endif
  * The filter banks are not shared between the CAN instances.
  *
  * ## Configuration
- * You can set the buffer size using the `tx_buffer` and `rx_buffer` parameters.
+ * You can set the in-memory (SW-managed) buffer size using the `buffer.tx` and
+ * `buffer.rx` parameters. If set to 0, filling a HW FIFO will immediately drop
+ * frames.
  *
+%% if target["family"] == "h7"
+ * You can configure the message RAM space allocation as follows:
+ * - `message_ram.standard_filter_count`: Maximum number of standard (11-bit ID) acceptance filters
+ * - `message_ram.extended_filter_count`: Maximum number of extended (29-bit ID) acceptance filters
+ * - `message_ram.rx_fifo_0_elements` and `message_ram.rx_fifo_1_elements`:
+ *   Number of received frames which can be queued by hardware in each RX FIFO
+ * - `message_ram.tx_fifo_elements`: Number of frames pending transmit which can be queued in hardware
+ *
+ * See also: `modm:architecture:can:message.buffer` which determines the size of
+ * the CAN message class's payload buffer and in turn the amount of space used
+ * to store CAN frame payloads in the message RAM.
+ *
+%% endif
  * @author		Raphael Lehmann <raphael@rleh.de>
  * @author		Christopher Durand <christopher.durand@rwth-aachen.de>
+ * @author		Kaelin Laundry <wasabifan@outlook.com>
  * @ingroup		modm_platform_can_{{ id }}
  */
 class Fdcan{{ id }} : public ::modm::Can
@@ -74,7 +104,7 @@ public:
 	using ErrorCallback = void (*)();
 
 private:
-	using MessageRam = fdcan::MessageRam<{{ id - 1 }}>;
+	using MessageRam = fdcan::MessageRam<{{ id - 1 }}, fdcan::Fdcan{{id}}MessageRamConfig>;
 
 	static inline volatile ErrorCallback errorCallback_ = nullptr;
 
@@ -201,8 +231,9 @@ public:
 
 	using FilterConfig = MessageRam::FilterConfig;
 
-	static constexpr inline uint8_t StandardFilterCount{28};
-	static constexpr inline uint8_t ExtendedFilterCount{8};
+	static constexpr inline uint8_t StandardFilterCount = MessageRam::StandardFilterCount;
+	static constexpr inline uint8_t ExtendedFilterCount = MessageRam::ExtendedFilterCount;
+
 
 	/// Set standard filter with id and mask
 	/// \param standardIndex Standard filter index 0..27
