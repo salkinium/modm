@@ -40,9 +40,9 @@ namespace modm::platform
  * FDCAN instances.
  *
  * This driver supports SW-managed/in-memory FIFOs which augment the hardware TX
- * and RX FIFOs. Note that the HW TX queue is set to "queue mode" (not "FIFO mode").
- * This means CAN messages are popped from the in-memory FIFO in order of addition
- * but arbitrated according to ID priority within the HW queue.
+ * and RX FIFOs. Note that the HW TX queue defaults to FIFO order but can be
+ * configured to transmit the highest priority (lowest arbitration ID) frames
+ * first.
  *
  * ## Filter
 %% if target["family"] == "h7"
@@ -58,6 +58,10 @@ namespace modm::platform
  * You can set the in-memory (SW-managed) buffer size using the `buffer.tx` and
  * `buffer.rx` parameters. If set to 0, filling a HW FIFO will immediately drop
  * frames.
+ *
+ * The `tx_hw_queue_mode` configures the order in which frames are transmitted
+ * from the hardware buffers. "FIFO" transmits in the order frames were enqueued.
+ * "Priority" transmits the message with the lowest arbitration ID first.
  *
 %% if target["family"] == "h7"
  * You can configure the message RAM space allocation as follows:

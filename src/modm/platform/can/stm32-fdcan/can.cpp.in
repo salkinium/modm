@@ -257,8 +257,10 @@ modm::platform::Fdcan{{ id }}::initializeWithPrescaler(
 	{{ reg }}->RXGFC |= (MessageRam::Config.filterCountStandard << FDCAN_RXGFC_LSS_Pos) | (MessageRam::Config.filterCountExtended << FDCAN_RXGFC_LSE_Pos);
 %%endif
 
+%% if options["tx_hw_queue_mode"] == "Priority"
 	// Tx buffer: queue mode
 	{{ reg }}->TXBC |= FDCAN_TXBC_TFQM;
+%% endif
 
 	// Enable bit rate switching and CANFD frame format
 	if(fdDataTimings) {

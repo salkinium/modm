@@ -17,6 +17,15 @@ from collections import defaultdict
 
 global_properties = {}
 
+tx_hw_queue_mode_description = """
+Controls the order in which frames are popped from the hardware TX queue (see
+message_ram.tx_fifo_elements). Does not affect the optional software buffer
+(buffer.tx), which is always popped in FIFO order.
+
+FIFO: transmit frames in the order they were enqueued.
+Priority: transmit the frame with the lowest arbitration ID first.
+"""
+
 message_ram_option_legacy_values = {
     "message_ram.standard_filter_count": 28,
     "message_ram.extended_filter_count": 8,
@@ -38,6 +47,13 @@ def load_options(module, options):
             description="",
             minimum=0, maximum="64Ki-2",
             default=32))
+
+    module.add_option(
+        EnumerationOption(
+            name="tx_hw_queue_mode",
+            description=tx_hw_queue_mode_description,
+            default="FIFO",
+            enumeration=["FIFO", "Priority"]))
 
     supports_configurable_message_ram = options[":target"].identifier.family == "h7"
 
