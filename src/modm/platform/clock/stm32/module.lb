@@ -86,7 +86,7 @@ def build(env):
         ((target["family"] == "f4") and target["name"] in ["46", "69", "79"])
 
     if target.family in ["h7"]:
-        if target.name in ["a0", "a3", "b0", "b3"]:
+        if target.name in ["a3", "b0", "b3"]:
             properties["cfgr_prescaler"] = "CDCFGR1"
         else:
             properties["cfgr_prescaler"] = "D1CFGR"
@@ -96,7 +96,7 @@ def build(env):
         properties["cfgr_prescaler"] = "CFGR"
 
     if target.family in ["h7"]:
-        if target.name in ["a0", "a3", "b0", "b3"]:
+        if target.name in ["a3", "b0", "b3"]:
             properties["cfgr2"] = "CDCFGR2"
         else:
             properties["cfgr2"] = "D2CFGR"
@@ -115,9 +115,9 @@ def build(env):
     else:
         properties["ccipr1"] = "CCIPR"
 
-    properties["d1"] = ("CD" if target.name in ["a0", "a3", "b0", "b3"] else "D1") \
+    properties["d1"] = ("CD" if target.name in ["a3", "b0", "b3"] else "D1") \
                         if target.family == "h7" else ""
-    properties["d2"] = ("CD" if target.name in ["a0", "a3", "b0", "b3"] else "D2") \
+    properties["d2"] = ("CD" if target.name in ["a3", "b0", "b3"] else "D2") \
                         if target.family == "h7" else ""
     properties["cfgr3"] = ("SRDCFGR" if target.name in ["a0", "a3", "b0", "b3"] else "D3CFGR")
     properties["d3"] = ("SRD" if target.name in ["a0", "a3", "b0", "b3"] else "D3")
