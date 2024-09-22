@@ -125,6 +125,10 @@ def validate_alternate_functions(driver, env):
 def get_remap_command(family, key):
     reg = 'SYSCFG->CFGR1'
     mask = {
+        ('c0', 'a9') : 'SYSCFG_CFGR1_PA11_RMP',
+        ('c0', 'a10'): 'SYSCFG_CFGR1_PA12_RMP',
+        ('c0', 'a11'): 'SYSCFG_CFGR1_PA11_RMP',
+        ('c0', 'a12'): 'SYSCFG_CFGR1_PA12_RMP',
         ('f0', 'a9') : 'SYSCFG_CFGR1_PA11_PA12_RMP',
         ('f0', 'a10'): 'SYSCFG_CFGR1_PA11_PA12_RMP',
         ('f0', 'a11'): 'SYSCFG_CFGR1_PA11_PA12_RMP',

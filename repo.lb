@@ -83,7 +83,8 @@ class DevicesCache(dict):
         device_file_names += glob.glob(repopath("tools/devices/**/*.xml"))
 
         # roughly filter to supported devices
-        supported = ["stm32f0", "stm32f1", "stm32f2", "stm32f3", "stm32f4", "stm32f7",
+        supported = ["stm32c0",
+                     "stm32f0", "stm32f1", "stm32f2", "stm32f3", "stm32f4", "stm32f7",
                      "stm32g0", "stm32g4",
                      "stm32h7",
                      "stm32l0", "stm32l1", "stm32l4", "stm32l5",

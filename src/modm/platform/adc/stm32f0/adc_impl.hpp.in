@@ -31,8 +31,8 @@ modm::platform::Adc{{ id }}::initialize()
 {
 	Rcc::enable<Peripheral::Adc{{ id }}>();
 
-%% if target.family in ["g0"]
-	ADC1->CR |= ADC_CR_ADVREGEN;
+%% if target.family in ["c0", "g0"]
+	ADC1->CR |= ADC_CR_ADVREGEN; // Enable internal ADC VREG
 	modm::delay_us(20);
 %% endif
 
@@ -48,7 +48,7 @@ modm::platform::Adc{{ id }}::initialize()
 		ADC1->CFGR2 = (ADC1->CFGR2 & ~ADC_CFGR2_CKMODE) | prescaler;
 	}
 	else {
-		ADC1->CFGR2 &= ~ADC_CFGR2_CKMODE;
+		ADC1->CFGR2 &= ~ADC_CFGR2_CKMODE; // Switch to async clock mode
 %% if target.family in ["f0"]
 		Rcc::enableInternalClockMHz14();
 		// There are no prescalers for the asynchronous clock
@@ -138,13 +138,13 @@ modm::platform::Adc{{ id }}::setChannel(const Channel channel, const SampleTimeG
 	if(uint32_t(channel) > {{channels | max}})
 		return false;
 
-%% if target.family in ["g0"]
+%% if target.family in ["c0", "g0"]
 	disableOrderedSequenceMode();
 	resetChannelConfigReady();
 %% endif
 
 	enableInternalChannel(channel);
-%% if target.family in ["g0"]
+%% if target.family in ["c0", "g0"]
 	setSampleTimeGroup(channel, group);
 	// clear Channel Configuration Ready flag
 	resetChannelConfigReady();
@@ -160,12 +160,12 @@ modm::platform::Adc{{ id }}::setChannel(const Channel channel, const SampleTimeG
 void
 modm::platform::Adc{{ id }}::setChannels(ChannelMask_t channels)
 {
-%% if target.family in ["g0"]
+%% if target.family in ["c0", "g0"]
 	disableOrderedSequenceMode();
 	resetChannelConfigReady();
 %% endif
 	ADC1->CHSELR = channels.value;
-%% if target.family in ["g0"]
+%% if target.family in ["c0", "g0"]
 	waitChannelConfigReady();
 %% endif
 }
@@ -177,7 +177,7 @@ modm::platform::Adc{{ id }}::channelMaskFromPins() -> ChannelMask_t
 	return (static_cast<ChannelMask>(1u << std::to_underlying(getPinChannel<Gpios>())) | ...);
 }
 
-%% if target.family in ["g0"]
+%% if target.family in ["c0", "g0"]
 bool
 modm::platform::Adc{{ id }}::setChannels(std::span<const Channel> channels)
 {
@@ -226,7 +226,7 @@ modm::platform::Adc{{ id }}::enableInternalChannel(Channel channel)
 	if (channel == Channel::InternalReference and
 	    not (ADC1_COMMON->CCR & ADC_CCR_VREFEN))
 	{
-%% if target.family in ["g0"]
+%% if target.family in ["c0", "g0"]
 		ADC1->CR |= ADC_CR_ADVREGEN;
 		modm::delay_us(30);
 %% endif
@@ -245,7 +245,7 @@ modm::platform::Adc{{ id }}::enableInternalChannel(Channel channel)
 	}
 }
 
-%% if target.family in ["g0"]
+%% if target.family in ["c0", "g0"]
 void
 modm::platform::Adc{{ id }}::setSampleTimeGroup(Channel channel, SampleTimeGroup group)
 {
@@ -274,7 +274,7 @@ modm::platform::Adc{{ id }}::disableOversampling()
 
 
 void
-%% if target.family in ["g0"]
+%% if target.family in ["c0", "g0"]
 modm::platform::Adc{{ id }}::setSampleTime(const SampleTime sampleTime, const SampleTimeGroup group)
 {
 	if (group == SampleTimeGroup::Group1) {
@@ -295,7 +295,7 @@ modm::platform::Adc{{ id }}::clearChannel(const Channel channel)
 	if(uint32_t(channel) > {{channels | max}})
 		return;
 
-%% if target.family in ["g0"]
+%% if target.family in ["c0", "g0"]
 	ADC1->ISR = ADC_ISR_CCRDY;
 	ADC1->CHSELR = 0;
 	while(not (ADC1->ISR & ADC_ISR_CCRDY)) ;
@@ -304,7 +304,7 @@ modm::platform::Adc{{ id }}::clearChannel(const Channel channel)
 %% endif
 
 	if (channel == Channel::InternalReference) {
-%% if target.family in ["g0"]
+%% if target.family in ["c0", "g0"]
 		ADC1->CR &= ~ADC_CR_ADVREGEN;
 %% endif
 		ADC1_COMMON->CCR &= ~ADC_CCR_VREFEN;
@@ -334,6 +334,9 @@ modm::platform::Adc{{ id }}::readTemperature(uint16_t Vref)
 %% if target.family == "f0" and target.name in ["30", "70"]
 	const int32_t value = (int32_t(*TS_CAL1) - (TS_DATA * Vref / VDDA_CAL)) * 1000;
 	return value / TS_AVG_SLOPE + TS_CAL1_TEMP;
+%% elif target.family == "c0"
+	const int32_t value = ((TS_DATA * Vref / VDDA_CAL) - int32_t(*TS_CAL1)) * 1000;
+	return (value / TS_AVG_SLOPE) + TS_CAL1_TEMP;
 %% else
 	const int32_t value = int32_t(TS_CAL2_TEMP - TS_CAL1_TEMP) * (TS_DATA * Vref / VDDA_CAL - *TS_CAL1);
 	return value / (*TS_CAL2 - *TS_CAL1) + TS_CAL1_TEMP;
@@ -483,7 +486,7 @@ modm::platform::Adc{{ id }}::getAdcEnabled()
 	return (ADC1->CR & ADC_CR_ADEN);
 }
 
-%% if target.family in ["g0"]
+%% if target.family in ["c0", "g0"]
 void
 modm::platform::Adc{{ id }}::waitChannelConfigReady()
 {

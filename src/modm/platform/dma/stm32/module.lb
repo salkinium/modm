@@ -41,10 +41,10 @@ def prepare(module, options):
 
 def get_irq_list(device):
     irqs = {v["position"]: v["name"] for v in device.get_driver("core")["vector"]}
-    irqs = [v for v in irqs.values() if v.startswith("DMA") and v[3].isdigit() and not "DMA2D" in v]
+    irqs = [v for v in irqs.values() if re.match(r"(?:\w+_)?DMA\d_", v)]
 
-    instance_pattern = re.compile(r"(DMA\d_(Ch|Channel|Stream)\d(_\d)*)")
-    channel_pattern = re.compile(r"DMA(?P<instance>\d)_(Ch|Channel|Stream)(?P<channels>(\d(_\d)*))")
+    instance_pattern = re.compile(r"(DMA\d_(Ch|CH|Channel|Stream)\d(_\d)*)")
+    channel_pattern = re.compile(r"DMA(?P<instance>\d)_(Ch|CH|Channel|Stream)(?P<channels>(\d(_\d)*))")
     irq_list = []
     for irq in irqs:
         instances = []

@@ -35,7 +35,11 @@ def build(env):
     properties["partname"] = device.partname
     properties["core"] = core = device.get_driver("core")["type"]
 
-    if target["family"] in ["f1", "f3"]:
+    if target["family"] in ["c0"]:
+        properties["hsi_frequency"] = 48_000_000
+        properties["lsi_frequency"] = 32_000
+        properties["boot_frequency"] = 12_000_000
+    elif target["family"] in ["f1", "f3"]:
         properties["hsi_frequency"] = 8_000_000
         properties["lsi_frequency"] = 40_000
         properties["boot_frequency"] = properties["hsi_frequency"]
@@ -71,7 +75,7 @@ def build(env):
         (target["family"] == "u5")
     if target["family"] in ["l4", "l5"]:
         properties["hsi48_cr"] = "CRRCR"
-    elif target["family"] in ["u5"]:
+    elif target["family"] in ["c0", "u5"]:
         properties["hsi48_cr"] = "CR"
     else:
         properties["hsi48_cr"] = "CR2"
@@ -121,8 +125,8 @@ def build(env):
                         if target.family == "h7" else ""
     properties["cfgr3"] = ("SRDCFGR" if target.name in ["a0", "a3", "b0", "b3"] else "D3CFGR")
     properties["d3"] = ("SRD" if target.name in ["a0", "a3", "b0", "b3"] else "D3")
-    properties["bdcr"] = "CSR" if target.family in ["l0", "l1"] else "BDCR"
-    properties["pll_ids"] = ["1", "2", "3"] if target.family in ["h7", "u5"] else [""]
+    properties["bdcr"] = "CSR1" if target.family in ["c0"] else "CSR" if target.family in ["l0", "l1"] else "BDCR"
+    properties["pll_ids"] = ["1", "2", "3"] if target.family in ["h7", "u5"] else [] if target.family in ["c0"] else [""]
     properties["has_smps"] = target["family"] == "h7" and (target["name"] in ["25", "35", "45", "47", "55", "57"] or \
         (target["name"] in ["30", "a3", "b0", "b3"] and target["variant"] == "q"))
 

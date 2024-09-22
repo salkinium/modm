@@ -57,6 +57,7 @@ def build(env):
     # (cycles per loop, setup cost in loops)
     tuning = {
         "g4": (3,  4), # CM4  tested on G476 in RAM
+        "c0": (3,  4), # CM0+ tested on C031 in RAM
         "l0": (3,  4), # CM0+ tested on L031 in RAM
         "g0": (3,  4), # CM0+ tested on G072 in RAM
         "f7": (4,  4), # CM7  tested on F767 in ITCM

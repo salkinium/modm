@@ -125,7 +125,7 @@ Rcc::enableExternalCrystal(uint32_t waitCycles)
 }
 
 
-%% set lsi_cr="BDCR" if target.family in ["u5"] else "CSR"
+%% set lsi_cr="CSR2" if target.family in ["c0"] else "BDCR" if target.family in ["u5"] else "CSR"
 bool
 Rcc::enableLowSpeedInternalClock(uint32_t waitCycles)
 {
@@ -576,7 +576,6 @@ Rcc::setHsiPredivider4Enabled(bool divideBy4, uint32_t waitCycles)
 }
 %% endif
 
-
 %% set sysclksrcf_cfgr="CFGR1" if target.family in ["u5"] else "CFGR"
 bool
 Rcc::enableSystemClock(SystemClockSource src, uint32_t waitCycles)
@@ -590,7 +589,6 @@ Rcc::enableSystemClock(SystemClockSource src, uint32_t waitCycles)
 
 	return true;
 }
-
 
 %% if target.family in ["g4", "l5"]
 bool

@@ -18,7 +18,8 @@ def init(module):
 
 def prepare(module, options):
     device = options[":target"]
-    if not (device.has_driver("adc:stm32-f0") or
+    if not (device.has_driver("adc:stm32-c0") or
+            device.has_driver("adc:stm32-f0") or
             device.has_driver("adc:stm32-g0")):
         return False
     module.depends(
@@ -40,7 +41,10 @@ def build(env):
     properties["id"] = driver.get("instance", [""])[0]
 
     channels = {i:"In{}".format(i) for i in reversed(range(0,19))}
-    if target.family in ["g0"]:
+    if target.family in ["c0"]:
+        channels[9] = "Temperature"
+        channels[10] = "InternalReference"
+    elif target.family in ["g0"]:
         channels[12] = "Temperature"
         channels[13] = "InternalReference"
         channels[14] = "Battery"

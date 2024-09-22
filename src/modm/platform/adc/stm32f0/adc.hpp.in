@@ -89,7 +89,7 @@ public:
 %% endif
 	};
 
-%% if target.family in ["g0"]
+%% if target.family in ["c0", "g0"]
 	enum class SampleTimeGroup
 	{
 		Group1,
@@ -229,7 +229,7 @@ public:
 	static inline void
 	setWaitMode(bool enable);
 
-%% if target.family in ["g0"]
+%% if target.family in ["c0", "g0"]
 	static inline void
 	enableOversampling(OversampleRatio ratio, OversampleShift shift = OversampleShift::Div1);
 
@@ -299,7 +299,7 @@ public:
 	 * 		initialize()
 	 */
 	static inline bool
-%% if target.family in ["g0"]
+%% if target.family in ["c0", "g0"]
 	setChannel(Channel channel, SampleTimeGroup group = SampleTimeGroup::Group1);
 %% else
 	setChannel(Channel channel);
@@ -318,7 +318,7 @@ public:
 	static consteval ChannelMask_t
 	channelMaskFromPins();
 
-%% if target.family in ["g0"]
+%% if target.family in ["c0", "g0"]
 	/**
 	 * Set channel scan sequence to convert up to 8 channels in arbitrary order.
 	 *
@@ -342,7 +342,7 @@ public:
 	/// Setting the channel for a Pin
 	template< class Gpio >
 	static inline bool
-%% if target.family in ["g0"]
+%% if target.family in ["c0", "g0"]
 	setPinChannel(SampleTimeGroup group = SampleTimeGroup::Group1)
 	{
 		return setChannel(getPinChannel<Gpio>(), group);
@@ -369,7 +369,7 @@ public:
 		return readChannel(getPinChannel<Gpio>());
 	}
 
-%% if target.family in ["g0"]
+%% if target.family in ["c0", "g0"]
 	static inline void
 	setSampleTime(SampleTime sampleTime, SampleTimeGroup group = SampleTimeGroup::Group1);
 
@@ -429,7 +429,7 @@ public:
 	enableInternalChannel(Channel channel);
 
 private:
-%% if target.family in ["g0"]
+%% if target.family in ["c0", "g0"]
 	static inline void
 	waitChannelConfigReady();
 
@@ -445,7 +445,12 @@ private:
 
 public:
 	static constexpr uint8_t TS_CAL1_TEMP{30};
-%% if target.family in ["f0"]
+%% if target.family in ["c0"]
+	static constexpr uint16_t VDDA_CAL{3000};
+	static inline volatile uint16_t *const VREFINT_CAL{(volatile uint16_t *)0x1FFF756A};
+	static inline volatile uint16_t *const TS_CAL1{(volatile uint16_t *)0x1FFF7568};
+	static constexpr uint16_t TS_AVG_SLOPE{3454}; // Typ. 2.53mV/°C => 2530uV * 4096 / 3000
+%% elif target.family in ["f0"]
 	static constexpr uint16_t VDDA_CAL{3300};
 	static inline volatile uint16_t *const VREFINT_CAL{(volatile uint16_t *)0x1FFF'F7BA};
 	static inline volatile uint16_t *const TS_CAL1{(volatile uint16_t *)0x1FFF'F7B8};
