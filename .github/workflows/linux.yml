@@ -135,6 +135,10 @@ jobs:
       - name: Update lbuild
         run: |
           pip3 install --upgrade --upgrade-strategy=eager modm
+      - name: Examples STM32C0 Series
+        if: always()
+        run: |
+          (cd examples && ../tools/scripts/examples_compile.py nucleo_c031c6)
       - name: Examples STM32F0 Series
         if: always()
         run: |
