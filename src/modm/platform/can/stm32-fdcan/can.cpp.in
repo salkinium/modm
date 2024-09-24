@@ -216,6 +216,10 @@ modm::platform::Fdcan{{ id }}::initializeWithPrescaler(
 	static_assert(MessageRam::Config.txFifoSectionOffset() + MessageRam::Config.txFifoSectionWords() == MessageRam::Config.totalSectionWords());
 
 	MessageRam::setRamBase(SRAMCAN_BASE + (messageRamBaseWords * MessageRam::RamWordSize));
+	if (!messageRamInitialized_) {
+		MessageRam::zeroAllData();
+		messageRamInitialized_ = true;
+	}
 
 %% if target["family"] == "h7"
 	// Configure number of elements in each RAM section

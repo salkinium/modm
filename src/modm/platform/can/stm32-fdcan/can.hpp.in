@@ -111,6 +111,7 @@ private:
 	using MessageRam = fdcan::MessageRam<{{ id - 1 }}, fdcan::Fdcan{{id}}MessageRamConfig>;
 
 	static inline volatile ErrorCallback errorCallback_ = nullptr;
+	static inline bool messageRamInitialized_{false};
 
 	static void
 	initializeWithPrescaler(

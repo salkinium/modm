@@ -270,7 +270,15 @@ public:
 	{
 		return messageRamWord(FilterListExtended(), index * ExtendedFilterSize);
 	}
+
 public:
+	static void
+	zeroAllData()
+	{
+		for (uint32_t word = 0; word < Config.totalSectionWords(); ++word)
+			*messageRamWord(RamBase, word) = 0;
+	}
+
 	/// Write TX element headers to TX queue
 	static void
 	writeTxHeaders(uint8_t putIndex, CommonFifoHeader_t common, TxFifoHeader_t tx)
