@@ -20,6 +20,7 @@
 #include <tuple>
 
 #include <modm/math/utils/bit_constants.hpp>
+#include <modm/architecture/interface/can_message.hpp>
 #include <modm/architecture/interface/register.hpp>
 
 /// @cond
