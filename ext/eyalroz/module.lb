@@ -18,16 +18,19 @@ def prepare(module, options):
     return True
 
 def build(env):
+    is_hosted = env[":target"].identifier.platform == "hosted"
+    with_long_long = env.get(":io:with_long_long",
+            "avr" not in env[":target"].identifier.platform)
+
     env.collect(":build:path.include", "modm/ext")
     env.outbasepath = "modm/ext/printf"
 
     env.copy("printf/src/printf/printf.h", "printf.h")
     files = env.copy("printf/src/printf/printf.c", "printf.c")
-    env.collect(":build:ccflags", "-Wno-double-promotion", "-Wno-overflow", operations=files)
+    env.collect(":build:ccflags", "-Wno-overflow", operations=files)
 
-    with_long_long = "avr" not in env[":target"].identifier.platform
     env.substitutions = {
-        "with_long_long": env.get(":io:with_long_long", with_long_long),
-        "is_hosted": env[":target"].identifier.platform == "hosted",
+        "with_long_long": with_long_long,
+        "is_hosted": is_hosted,
     }
     env.template("printf_config.h.in")
