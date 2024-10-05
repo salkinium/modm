@@ -37,6 +37,18 @@ typedef unsigned int uint;
 void
 panic(const char* /*fmt*/, ...);
 
+uint8_t rp2040_chip_version(void);
+
+static inline void
+busy_wait_at_least_cycles(uint32_t minimum_cycles)
+{
+	asm volatile(
+		"1: sub %0, #3\t\n"
+		"bcs 1b\t\n"
+		: "+l" (minimum_cycles) : : "cc", "memory"
+	);
+}
+
 #ifdef __cplusplus
 }
 #endif

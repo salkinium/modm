@@ -28,7 +28,7 @@ irq_set_exclusive_handler(int irqn, void (*handler)(void))
 {
 	(void) irqn;
 	(void) handler;
-	// do nothing, irq implemented at modm
+	// do nothing, irq implemented in modm
 }
 
 static inline void
@@ -37,6 +37,15 @@ irq_add_shared_handler(unsigned int irqn, void (*handler)(void), uint8_t order_p
 	(void) irqn;
 	(void) handler;
 	(void) order_priority;
+	// do nothing, irq implemented in modm
+}
+
+static inline void
+irq_remove_handler(unsigned int irqn, void (*handler)(void))
+{
+	(void) irqn;
+	(void) handler;
+	// do nothing, irq implemented in modm
 }
 
 #define PICO_SHARED_IRQ_HANDLER_HIGHEST_ORDER_PRIORITY 0xff

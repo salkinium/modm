@@ -1,5 +1,6 @@
 #include "pico.h"
 #include "hardware/resets.h"
+#include "hardware/regs/sysinfo.h"
 
 #include <modm/platform/core/resets.hpp>
 %% if with_debug
@@ -30,4 +31,10 @@ extern "C" void panic(const char *fmt, ...)
 	(void) fmt;
 %% endif
 	modm_assert(0, "pico", "Pico-SDK panic!");
+}
+
+extern "C" uint8_t rp2040_chip_version(void)
+{
+	const uint32_t chip_id = *((const uint32_t*)(SYSINFO_BASE + SYSINFO_CHIP_ID_OFFSET));
+	return (chip_id & SYSINFO_CHIP_ID_REVISION_BITS) >> SYSINFO_CHIP_ID_REVISION_LSB;
 }
