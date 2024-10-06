@@ -62,28 +62,27 @@ namespace touch
 modm::Touch2046<touch::Spi, touch::Cs> touchController;
 
 
-static lv_disp_draw_buf_t disp_buf;
 static constexpr size_t buf_size = LV_HOR_RES_MAX * LV_VER_RES_MAX / 8;
 static lv_color_t buf[buf_size];
 
-void my_touchpad_read(lv_indev_drv_t*, lv_indev_data_t* data)
+void my_touchpad_read(lv_indev_t*, lv_indev_data_t* data)
 {
-	data->state = RF_CALL_BLOCKING(touchController.isTouched()) ? LV_INDEV_STATE_PR : LV_INDEV_STATE_REL;
-	if(data->state == LV_INDEV_STATE_PR) {
+	data->state = RF_CALL_BLOCKING(touchController.isTouched()) ? LV_INDEV_STATE_PRESSED : LV_INDEV_STATE_RELEASED;
+	if(data->state == LV_INDEV_STATE_PRESSED) {
 		auto xy = RF_CALL_BLOCKING(touchController.getTouchPosition());
 		data->point.x = std::get<0>(xy);
 		data->point.y = std::get<1>(xy);
 	}
 }
 
-void my_flush_cb(lv_disp_drv_t * disp_drv, const lv_area_t * area, lv_color_t * color_p)
+void disp_flush(lv_display_t* disp, const lv_area_t* area, uint8_t* px_map)
 {
 	tftController.drawRaw(
 		{area->x1, area->y1},
 		(area->x2 - area->x1 +1),
 		(area->y2 - area->y1 + 1),
-		(modm::color::Rgb565*)color_p);
-	lv_disp_flush_ready(disp_drv);
+		(modm::color::Rgb565*)px_map);
+	lv_display_flush_ready(disp);
 }
 
 int
@@ -118,45 +117,35 @@ main()
 
 	MODM_LOG_INFO << "modm LVGL example on Nucleo-L452RE board!\n\n";
 
-	lv_init();
-
-	// Initialize the display buffer
-	lv_disp_draw_buf_init(&disp_buf, buf, NULL, buf_size);
-
-	// Initialize the display:
-	lv_disp_drv_t disp_drv;
-	lv_disp_drv_init(&disp_drv);
-	disp_drv.draw_buf = &disp_buf;
-	disp_drv.flush_cb = my_flush_cb;
-	disp_drv.hor_res = LV_HOR_RES_MAX;
-	disp_drv.ver_res = LV_VER_RES_MAX;
-	lv_disp_t *disp = lv_disp_drv_register(&disp_drv);
+	lv_display_t *disp = lv_display_create(LV_HOR_RES_MAX, LV_VER_RES_MAX);
+	lv_display_set_flush_cb(disp, disp_flush);
+	lv_display_set_buffers(disp, buf, NULL, sizeof(buf), LV_DISPLAY_RENDER_MODE_DIRECT);
 
 	// Initialize touchscreen driver:
-	lv_indev_drv_t indev_drv;
-	lv_indev_drv_init(&indev_drv);
-	indev_drv.type = LV_INDEV_TYPE_POINTER;
-	indev_drv.read_cb = my_touchpad_read;
-	lv_indev_drv_register(&indev_drv);
+	lv_indev_t* indev = lv_indev_create();
+	lv_indev_set_type(indev, LV_INDEV_TYPE_POINTER);
+	lv_indev_set_read_cb(indev, my_touchpad_read);
 
-	lv_obj_t* scr = lv_disp_get_scr_act(disp); // Get the current screen
-
-	lv_obj_t* labelA =  lv_label_create(scr);
+	lv_obj_t* labelA =  lv_label_create(lv_screen_active());
 	lv_label_set_text(labelA, "Hello world!");
 	lv_obj_set_pos(labelA, 60, 10);
 	lv_obj_set_size(labelA, 120, 50);
 
-	lv_obj_t* btn = lv_btn_create(lv_scr_act());
+	lv_obj_t* btn = lv_button_create(lv_screen_active());
 	lv_obj_set_pos(btn, 60, 135);
 	lv_obj_set_size(btn, 120, 50);
+
 	lv_obj_t* btnLabel = lv_label_create(btn);
 	lv_label_set_text(btnLabel, "Button");
-	lv_obj_add_event_cb(btn, [](lv_event_t *event) {
-		static uint16_t btnCounter = 0;
-		lv_label_set_text_fmt(lv_obj_get_child(event->target, 0), "Button: %d", ++btnCounter);
-	}, LV_EVENT_PRESSED, NULL);
 
-	lv_obj_t* labelB =  lv_label_create(scr);
+	lv_obj_add_event_cb(btn, [](lv_event_t *event)
+	{
+		static uint16_t btnCounter = 0;
+		lv_label_set_text_fmt((lv_obj_t*) lv_event_get_user_data(event),
+							  "Button: %d", ++btnCounter);
+	}, LV_EVENT_PRESSED, btnLabel);
+
+	lv_obj_t* labelB =  lv_label_create(lv_screen_active());
 	lv_label_set_text(labelB, "Big Font");
 	lv_obj_set_pos(labelB, 40, 260);
 	lv_obj_set_style_text_font(labelB, &lv_font_montserrat_36, LV_PART_MAIN);
@@ -167,7 +156,7 @@ main()
 
 	while (true)
 	{
-		lv_task_handler();
+		lv_timer_handler();
 
 		if (tmr.execute())
 		{

@@ -22,7 +22,6 @@ and low memory footprint.
 - https://lvgl.io/
 - https://github.com/lvgl/lvgl
 
-
 ## Configuration
 
 LVGL defines defaults for all it's configuration settings, which you can find in
@@ -31,11 +30,10 @@ the [configuration template][conf_template].
 This module generates a `lv_conf.h` file to define the options necessary for
 integration with modm which are:
 
-- `LV_MEM_CUSTOM = 1`: Heap is provided by the `modm:platform:heap` module.
-- `LV_TICK_CUSTOM = 1`: Tick is implemented via the `modm:platform:clock` module.
+- Heap is provided by the `modm:platform:heap` module.
+- Tick is implemented via the `modm:platform:clock` module.
 - `LV_LOG_PRINTF = 0`: logging is redirected to `MODM_LOG_*` if the
                        `modm:debug` module is included and `LV_USE_LOG = 1`.
-- `typedef int16_t lv_coord_t;`: Hardcoded choice for now.
 
 To add your own configuration you can create a `<lv_conf_local.h>` file which
 will automatically be included at the *beginning* of our `lv_conf.h`.
@@ -64,6 +62,12 @@ Example `<lv_conf_local.h>` configuration:
 #define LV_ANTIALIAS  0
 ```
 
+## Initialization
+
+modm will call `lv_init()` as a constructor with priority 1000 and then set the
+required callbacks for the modm port to work. Static constructors are called
+afterwards therefore can already use the LVGL functions.
+
 [conf_template]: https://github.com/lvgl/lvgl/blob/master/lv_conf_template.h
 """
 
@@ -79,10 +83,8 @@ def build(env):
     env.outbasepath = "modm/ext/lvgl"
 
     env.copy("lvgl/lvgl.h")
+    env.copy("lvgl/lv_version.h")
     env.template("lv_conf.h.in")
     env.copy("lvgl/src")
-    env.copy("lv_modm_clock.h")
-    env.copy("lv_modm_clock.cpp")
-
-    if env.has_module(":debug"):
-        env.copy("lv_modm_logging.cpp")
+    env.substitutions = {"has_debug": env.has_module(":debug")}
+    env.template("lv_modm_port.cpp.in")

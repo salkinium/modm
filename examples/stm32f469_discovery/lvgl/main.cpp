@@ -26,38 +26,30 @@ using namespace Board::ft6;
 using namespace modm::literals;
 
 
-static uint16_t* displayBuffer;
-static lv_disp_draw_buf_t disp_buf;
-static lv_color_t* buf;
-static constexpr size_t buf_size = LV_HOR_RES_MAX * LV_VER_RES_MAX;
-
 Touch::Data touchData;
 Touch touch{touchData, TouchAddress};
 
-void my_touchpad_read(lv_indev_drv_t*, lv_indev_data_t* data)
+void my_touchpad_read(lv_indev_t*, lv_indev_data_t* data)
 {
 	RF_CALL_BLOCKING(touch.readTouches());
 	Touch::touch_t tp;
 	touch.getData().getTouch(&tp, 0);
 	// mirror and rotate correctly
 	uint16_t x{tp.y}, y{uint16_t(480 - tp.x)};
-	data->state = (tp.event == Touch::Event::Contact) ? LV_INDEV_STATE_PR : LV_INDEV_STATE_REL;
-	if(data->state == LV_INDEV_STATE_PR) {
+	if (tp.event == Touch::Event::Contact)
+	{
+		data->state = LV_INDEV_STATE_PRESSED;
 		data->point.x = x;
 		data->point.y = y;
 	}
+	else data->state = LV_INDEV_STATE_RELEASED;
 }
 
-void my_flush_cb(lv_disp_drv_t * disp_drv, const lv_area_t * area, lv_color_t * color_p)
+uint8_t *buf_1, *buf_2;
+void disp_flush(lv_display_t* disp, const lv_area_t*, uint8_t* px_map)
 {
-	for(lv_coord_t y = area->y1; y <= area->y2; y++) {
-		std::memcpy(
-			&displayBuffer[(800*y) + area->x1],
-			&color_p[(y - area->y1) * (area->x2 - area->x1 + 1)],
-			(area->x2 - area->x1 + 1) * sizeof(lv_color_t)
-			);
-	}
-	lv_disp_flush_ready(disp_drv);
+	setDisplayBuffer((uint16_t*) px_map);
+	lv_display_flush_ready(disp);
 }
 
 
@@ -72,55 +64,45 @@ main()
 
 	RF_CALL_BLOCKING(touch.configure(Touch::InterruptMode::Trigger, 60, 60));
 
-	lv_init();
-
-	buf = new(modm::MemoryExternal) lv_color_t[buf_size];
-	displayBuffer = new(modm::MemoryExternal) uint16_t[buf_size];
-
-	setDisplayBuffer(displayBuffer);
-
-	// Initialize the display buffer
-	lv_disp_draw_buf_init(&disp_buf, buf, NULL, buf_size);
-
 	// Initialize the display:
-	lv_disp_drv_t disp_drv;
-	lv_disp_drv_init(&disp_drv);
-	disp_drv.draw_buf = &disp_buf;
-	disp_drv.flush_cb = my_flush_cb;
-	disp_drv.hor_res = LV_HOR_RES_MAX;
-	disp_drv.ver_res = LV_VER_RES_MAX;
-	lv_disp_t *disp = lv_disp_drv_register(&disp_drv);
+	lv_display_t *disp = lv_display_create(LV_HOR_RES_MAX, LV_VER_RES_MAX);
+	lv_display_set_flush_cb(disp, disp_flush);
+
+	static constexpr size_t BufSize = LV_HOR_RES_MAX * LV_VER_RES_MAX * sizeof(lv_color_t);
+	buf_1 = new(modm::MemoryExternal) uint8_t[BufSize];
+	buf_2 = new(modm::MemoryExternal) uint8_t[BufSize];
+	lv_display_set_buffers(disp, buf_1, buf_2, BufSize, LV_DISPLAY_RENDER_MODE_DIRECT);
 
 	// Initialize touchscreen driver:
-	lv_indev_drv_t indev_drv;
-	lv_indev_drv_init(&indev_drv);
-	indev_drv.type = LV_INDEV_TYPE_POINTER;
-	indev_drv.read_cb = my_touchpad_read;
-	lv_indev_drv_register(&indev_drv);
+	lv_indev_t* indev = lv_indev_create();
+	lv_indev_set_type(indev, LV_INDEV_TYPE_POINTER);
+	lv_indev_set_read_cb(indev, my_touchpad_read);
 
-	lv_obj_t* scr = lv_disp_get_scr_act(disp); // Get the current screen
-
-	lv_obj_t* labelA =  lv_label_create(scr);
+	lv_obj_t *labelA =  lv_label_create(lv_screen_active());
 	lv_label_set_text(labelA, "Hello world!");
 	lv_obj_set_pos(labelA, 10, 10);
 	lv_obj_set_size(labelA, 120, 50);
 
-	lv_obj_t* btn2 = lv_btn_create(lv_scr_act());
+	lv_obj_t* btn2 = lv_button_create(lv_screen_active());
 	lv_obj_set_pos(btn2, 140, 10);
 	lv_obj_set_size(btn2, 120, 50);
+
 	lv_obj_t* label2 = lv_label_create(btn2);
 	lv_label_set_text(label2, "Button2");
-	lv_obj_add_event_cb(btn2, [](lv_event_t *event) {
+
+	lv_obj_add_event_cb(btn2, [](lv_event_t *event)
+	{
 		static uint16_t btn2Counter = 0;
-		lv_label_set_text_fmt(lv_obj_get_child(event->target, 0), "Button 2: %d", ++btn2Counter);
-	}, LV_EVENT_PRESSED, NULL);
+		lv_label_set_text_fmt((lv_obj_t*) lv_event_get_user_data(event),
+							  "Button 2: %d", ++btn2Counter);
+	}, LV_EVENT_PRESSED, label2);
 
 	uint16_t counter = 0;
 
 	modm::ShortPeriodicTimer tmr{20ms};
 	while (true)
 	{
-		lv_task_handler();
+		lv_timer_handler();
 
 		if (tmr.execute())
 		{

@@ -6,48 +6,17 @@
 #ifndef LV_CONF_H
 #define LV_CONF_H
 
-#include <stdint.h>
-
 /* A header file that overwrites with local project settings. */
 #if __has_include(<lv_conf_local.h>)
 #  include <lv_conf_local.h>
 #endif
 
-/*====================
-   Graphical settings
- *====================*/
-
-/* Type of coordinates. Should be `int16_t` (or `int32_t` for extreme cases) */
-typedef int16_t lv_coord_t;
-
 /*=========================
-   Memory manager settings
+   STDLIB WRAPPER SETTINGS
  *=========================*/
 
-/* 1: use custom malloc/free, 0: use the built-in `lv_mem_alloc` and `lv_mem_free` */
-#define LV_MEM_CUSTOM  1
-
-/*Use the standard `memcpy` and `memset` instead of LVGL's own functions. (Might or might not be faster).*/
-#define LV_MEMCPY_MEMSET_STD  1
-
-/*===================
- *  HAL settings
- *==================*/
-
-/* 1: use a custom tick source.
- * It removes the need to manually update the tick with `lv_tick_inc`) */
-#define LV_TICK_CUSTOM  1
- /*Header for the system time function*/
-#define LV_TICK_CUSTOM_INCLUDE  <lv_modm_clock.h>
-/*Expression evaluating to current system time in ms*/
-#define LV_TICK_CUSTOM_SYS_TIME_EXPR  (lv_modm_clock_now())
-
-/*================
- * Log settings
- *===============*/
-
-/* 1: Print the log with 'printf';
- * 0: user need to register a callback with `lv_log_register_print_cb`*/
-#define LV_LOG_PRINTF  0
+#define LV_USE_STDLIB_MALLOC    LV_STDLIB_CLIB
+#define LV_USE_STDLIB_STRING    LV_STDLIB_CLIB
+#define LV_USE_STDLIB_SPRINTF   LV_STDLIB_CLIB
 
 #endif /*LV_CONF_H*/
