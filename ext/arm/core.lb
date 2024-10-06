@@ -27,11 +27,12 @@ def build(env):
     env.copy("cmsis/CMSIS/Core/Include/cmsis_version.h", "cmsis_version.h")
     env.copy("cmsis/CMSIS/Core/Include/cmsis_compiler.h", "cmsis_compiler.h")
     env.copy("cmsis/CMSIS/Core/Include/cmsis_gcc.h", "cmsis_gcc.h")
+    env.copy("cmsis/CMSIS/Core/Include/m-profile/cmsis_gcc_m.h", "m-profile/cmsis_gcc_m.h")
     if "33" in core:
-        env.copy("cmsis/CMSIS/Core/Include/mpu_armv8.h", "mpu_armv8.h")
+        env.copy("cmsis/CMSIS/Core/Include/m-profile/armv8m_mpu.h", "m-profile/armv8m_mpu.h")
     elif core != "0": # 0+ has MPU support though!
-        env.copy("cmsis/CMSIS/Core/Include/mpu_armv7.h", "mpu_armv7.h")
+        env.copy("cmsis/CMSIS/Core/Include/m-profile/armv7m_mpu.h", "m-profile/armv7m_mpu.h")
     if core == "7":
-        env.copy("cmsis/CMSIS/Core/Include/cachel1_armv7.h", "cachel1_armv7.h")
+        env.copy("cmsis/CMSIS/Core/Include/m-profile/armv7m_cachel1.h", "m-profile/armv7m_cachel1.h")
 
     env.collect(":build:path.include", "modm/ext/cmsis/core")

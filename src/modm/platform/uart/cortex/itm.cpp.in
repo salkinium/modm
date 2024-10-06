@@ -43,29 +43,25 @@ void
 Itm::enable(uint8_t prescaler)
 {
 	// Trace Port Interface Selected Pin Protocol Register
-	TPI->ACPR = prescaler;
+	TPIU->ACPR = prescaler;
 
 	// Trace Port Interface Selected Pin Protocol Register
-	TPI->SPPR = (0b10 << TPI_SPPR_TXMODE_Pos);
+	TPIU->SPPR = (0b10 << TPIU_SPPR_TXMODE_Pos);
 
 	// Trace Port Interface Formatter and Flush Control Register
-	TPI->FFCR = (1 << TPI_FFCR_TrigIn_Pos);
+	TPIU->FFCR = (1 << TPIU_FFCR_TrigIn_Pos);
 
 	// Trace Port Interface Current Parallel Port Size Register
-	TPI->CSPSR = 0b1;
+	TPIU->CSPSR = 0b1;
 
 	// Enable write access to ITM registers
-	ITM->LAR  = 0xC5ACCE55;
+	*(uint32_t*)(ITM_BASE+0xFB0) = 0xC5ACCE55;
 
 	// Trace Privilege Register
 	ITM->TPR  = 0;
 
 	// Trace Control Register
-%% if target.platform == "stm32" and target.family in ["l5", "u5"]
 	ITM->TCR  = (1 << ITM_TCR_TRACEBUSID_Pos) |
-%% else
-	ITM->TCR  = (1 << ITM_TCR_TraceBusID_Pos) |
-%% endif
 				(1 << ITM_TCR_DWTENA_Pos)     |
 				(1 << ITM_TCR_ITMENA_Pos);
 
