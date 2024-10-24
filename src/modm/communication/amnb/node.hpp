@@ -141,7 +141,7 @@ protected:
 		{
 			if (not tx_queue.isEmpty())
 			{
-				RF_WAIT_WHILE(isResumableRunning(3));
+				RF_WAIT_WHILE(is_sending);
 				RF_CALL(send(tx_queue.get()));
 				tx_queue.pop();
 			}
@@ -154,6 +154,7 @@ protected:
 	send(Message &msg)
 	{
 		RF_BEGIN(3);
+		is_sending = true;
 
 		msg.setValid();
 		tx_counter = std::min(MIN_TX_TRIES, uint8_t(msg.command() >> (8 - PRIORITY_BITS)));
@@ -176,6 +177,7 @@ protected:
 			reschedule(RESCHEDULE_MASK_LONG);
 			RF_WAIT_UNTIL(tx_timer.isExpired());
 		}
+		is_sending = false;
 		RF_END();
 	}
 
@@ -184,7 +186,7 @@ protected:
 	{
 		RF_BEGIN(4);
 
-		RF_WAIT_WHILE(isResumableRunning(3));
+		RF_WAIT_WHILE(is_sending);
 		response_status = ResponseStatus::Waiting;
 		RF_CALL(send(request_msg));
 
@@ -316,6 +318,7 @@ protected:
 
 	uint8_t tx_counter;
 	bool is_rx_msg_for_us;
+	bool is_sending{false};
 
 	enum class ResponseStatus : uint8_t
 	{
