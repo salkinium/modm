@@ -137,15 +137,11 @@ protected:
 	transmit()
 	{
 		RF_BEGIN(2);
-		while(1)
+		if (not tx_queue.isEmpty())
 		{
-			if (not tx_queue.isEmpty())
-			{
-				RF_WAIT_WHILE(is_sending);
-				RF_CALL(send(tx_queue.get()));
-				tx_queue.pop();
-			}
-			RF_YIELD();
+			RF_WAIT_WHILE(is_sending);
+			RF_CALL(send(tx_queue.get()));
+			tx_queue.pop();
 		}
 		RF_END();
 	}
@@ -206,21 +202,17 @@ protected:
 	receive()
 	{
 		RF_BEGIN(5);
-		while(1)
+		rx_msg.deallocate();	// deallocates previous message
+		if (RF_CALL(interface.receiveHeader(&rx_msg)) == InterfaceStatus::Ok)
 		{
-			rx_msg.deallocate();	// deallocates previous message
-			if (RF_CALL(interface.receiveHeader(&rx_msg)) == InterfaceStatus::Ok)
+			// Check lists if we are interested in this message
+			is_rx_msg_for_us = handleRxMessage(false);
+			// Receive the message data, only allocate if it's for us
+			if (RF_CALL(interface.receiveData(&rx_msg, is_rx_msg_for_us)) == InterfaceStatus::Ok)
 			{
-				// Check lists if we are interested in this message
-				is_rx_msg_for_us = handleRxMessage(false);
-				// Receive the message data, only allocate if it's for us
-				if (RF_CALL(interface.receiveData(&rx_msg, is_rx_msg_for_us)) == InterfaceStatus::Ok)
-				{
-					// Only handle message *with* data if it's for us
-					if (is_rx_msg_for_us) handleRxMessage(true);
-				}
+				// Only handle message *with* data if it's for us
+				if (is_rx_msg_for_us) handleRxMessage(true);
 			}
-			RF_YIELD();
 		}
 		RF_END();
 	}
