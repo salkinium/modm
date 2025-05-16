@@ -1,0 +1,34 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+#
+# Copyright (c) 2025, Niklas Hauser
+#
+# This file is part of the modm project.
+#
+# This Source Code Form is subject to the terms of the Mozilla Public
+# License, v. 2.0. If a copy of the MPL was not distributed with this
+# file, You can obtain one at http://mozilla.org/MPL/2.0/.
+# -----------------------------------------------------------------------------
+
+
+def init(module):
+    module.name = ":stdc:picolibc"
+    module.description = """
+# Picolibc
+
+[Picolibc](https://github.com/picolibc/picolibc) is library offering standard C
+library APIs that targets small embedded systems with limited RAM.
+"""
+
+
+def prepare(module, options):
+    core = options[":target"].get_driver("core")["type"]
+    return core.startswith("cortex-m")
+
+
+def build(env):
+    core = env[":target"].get_driver("core")["type"]
+    env.outbasepath = "modm/ext/gcc/picolibc"
+    env.collect(":build:path.include", "modm/ext/gcc/picolibc")
+
+    env.copy("picolibc/newlib/libc/", "libc", ignore=env.ignore_files("machine"))
