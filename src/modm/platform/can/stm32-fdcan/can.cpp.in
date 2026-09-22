@@ -166,6 +166,8 @@ modm::platform::Fdcan{{ id }}::initializeWithPrescaler(
 		uint32_t interruptPriority, Mode startupMode, bool overwriteOnOverrun)
 {
 	Rcc::enable<Peripheral::Fdcan1>();
+	// Force a peripheral reset or else the EnterInitMode loops forever
+	Rcc::reset<Peripheral::Fdcan1>();
 
 	EnterInitMode init;
 
