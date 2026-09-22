@@ -63,6 +63,11 @@ public:
 	static void
 	disable();
 
+	/// Pulse the peripheral reset bit, independent of the enable bit state
+	template< Peripheral peripheral >
+	static void
+	reset();
+
 
 public:
 	/** Set flash latency for CPU frequency and voltage.

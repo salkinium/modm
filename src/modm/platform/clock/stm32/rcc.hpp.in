@@ -1133,6 +1133,10 @@ public:
 	static void
 	disable();
 
+	template< Peripheral peripheral >
+	static void
+	reset();
+
 private:
 	struct flash_latency
 	{

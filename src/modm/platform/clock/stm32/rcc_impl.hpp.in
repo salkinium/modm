@@ -113,6 +113,19 @@ rcc_check_enable(Peripheral peripheral)
 	}
 }
 
+constexpr bool
+rcc_check_reset(Peripheral peripheral)
+{
+	switch(peripheral) {
+	%% for peripheral in rcc_reset | sort
+		case Peripheral::{{ peripheral }}:
+	%% endfor
+			return true;
+		default:
+			return false;
+	}
+}
+
 template< Peripheral peripheral >
 void
 Rcc::enable()
@@ -124,12 +137,28 @@ Rcc::enable()
 	%% for peripheral, (st_per, bus) in rcc_enable.items() | sort
 	if constexpr (peripheral == Peripheral::{{ peripheral }})
 		{% if peripheral in rcc_reset %}if (not Rcc::isEnabled<peripheral>()) {% endif %}{
-			RCC->{{bus}} |= RCC_{{bus}}_{{st_per}}EN;{% if peripheral in rcc_reset %} __DSB();
-			RCC->{{rcc_reset[peripheral][1]}} |= RCC_{{rcc_reset[peripheral][1]}}_{{rcc_reset[peripheral][0]}}RST; __DSB();
-			RCC->{{rcc_reset[peripheral][1]}} &= ~RCC_{{rcc_reset[peripheral][1]}}_{{rcc_reset[peripheral][0]}}RST;{% endif %}{% if peripheral == "Eth" %} __DSB();
+			RCC->{{bus}} |= RCC_{{bus}}_{{st_per}}EN;{% if peripheral in rcc_reset %}
+			Rcc::reset<peripheral>();{% endif %}{% if peripheral == "Eth" %} __DSB();
 			RCC->{{bus}} |= RCC_{{bus}}_{{st_per}}RXEN; __DSB();
 			RCC->{{bus}} |= RCC_{{bus}}_{{st_per}}TXEN;{% endif %}
 		}
+	%% endfor
+	__DSB();
+}
+
+template< Peripheral peripheral >
+void
+Rcc::reset()
+{
+	static_assert(rcc_check_reset(peripheral),
+		"Rcc::reset() doesn't know this peripheral!");
+
+	__DSB();
+	%% for peripheral, (st_per, bus) in rcc_reset.items() | sort
+	if constexpr (peripheral == Peripheral::{{ peripheral }}) {
+		RCC->{{bus}} |= RCC_{{bus}}_{{st_per}}RST; __DSB();
+		RCC->{{bus}} &= ~RCC_{{bus}}_{{st_per}}RST;
+	}
 	%% endfor
 	__DSB();
 }
