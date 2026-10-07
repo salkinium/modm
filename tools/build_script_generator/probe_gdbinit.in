@@ -1,5 +1,5 @@
 define reset
-%% if probe == "openocd"
+%% if probe in ["openocd", "pyocd"]
   mon reset halt
 %% elif probe == "jlink"
   mon reset

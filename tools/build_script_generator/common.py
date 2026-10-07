@@ -100,6 +100,14 @@ def common_target(env):
         jlink_partname = device.partname[:11]
     if device.partname.startswith("nrf"):
         jlink_partname = device.partname.replace("-", "_").replace("@", "_")
+    # pyOCD uses the CMSIS pack names, which wildcard the temperature range
+    pyocd_target = device.partname
+    if device.partname.startswith("stm32"):
+        pyocd_target = device.partname[:12] + "x" + device.partname[13:]
+    elif device.partname.startswith("nrf"):
+        pyocd_target = device.partname.split("-")[0]
+    elif device.partname.startswith("sam"):
+        pyocd_target = "at" + device.partname.split("-")[0]
     p = {
         "core": core,
         "mcu": mcu,
@@ -107,6 +115,7 @@ def common_target(env):
         "family": device.identifier["family"],
         "partname": device.partname,
         "jlink_partname": jlink_partname,
+        "pyocd_target": pyocd_target,
     }
     return p
 

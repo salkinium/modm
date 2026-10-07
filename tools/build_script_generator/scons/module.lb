@@ -104,7 +104,7 @@ def build(env):
     device = env.query("::device")
     if device["core"].startswith("cortex-m"):
         tools.update({"size", "artifact", "openocd", "elf2uf2",
-                      "gdb", "bmp", "crashdebug", "dfu", "jlink"})
+                      "gdb", "bmp", "crashdebug", "dfu", "jlink", "pyocd"})
         if device["platform"] in ["sam"]:
             tools.update({"bossac"})
     elif device["core"].startswith("avr"):

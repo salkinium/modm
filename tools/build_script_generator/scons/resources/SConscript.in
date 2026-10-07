@@ -124,9 +124,11 @@ env["CONFIG_AVRDUDE_BAUDRATE"] = "{{ avrdude_baudrate }}"
 %% elif core.startswith("cortex-m")
 env.Append(MODM_OPENOCD_CONFIGFILES = "$BASEPATH/modm/openocd.cfg")
 env.Append(MODM_JLINK_DEVICE = "{{ jlink_partname }}")
+env.Append(MODM_PYOCD_TARGET = "{{ pyocd_target }}")
 env.Append(MODM_GDBINIT = "$BASEPATH/modm/gdbinit")
 env.Append(MODM_GDBINIT_OPENOCD = "$BASEPATH/modm/gdbinit_openocd")
 env.Append(MODM_GDBINIT_JLINK = "$BASEPATH/modm/gdbinit_jlink")
+env.Append(MODM_GDBINIT_PYOCD = "$BASEPATH/modm/gdbinit_pyocd")
 env.Append(MODM_GDBINIT_BMP = "$BASEPATH/modm/gdbinit_bmp")
 env.Append(MODM_GDB_COMMANDS = ["dir $GCC_PATH", "modm_setup_tui"])
 

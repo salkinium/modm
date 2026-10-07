@@ -30,7 +30,7 @@ python3 -m modm_tools.rtt --channel 0 jlink -device STM32F469NI
 (\* *only ARM Cortex-M targets*)
 """
 
-from . import openocd, jlink
+from . import openocd, jlink, pyocd
 
 if __name__ == "__main__":
     import argparse
@@ -47,6 +47,7 @@ if __name__ == "__main__":
     subparsers = parser.add_subparsers(title="Backend", dest="backend")
     openocd.add_subparser(subparsers)
     jlink.add_subparser(subparsers)
+    pyocd.add_subparser(subparsers)
 
     args = parser.parse_args()
     backend = args.backend(args)
@@ -55,3 +56,5 @@ if __name__ == "__main__":
         openocd.rtt(backend, args.channel)
     elif isinstance(backend, jlink.JLinkBackend):
         jlink.rtt(backend, args.channel)
+    elif isinstance(backend, pyocd.PyOcdBackend):
+        pyocd.rtt(backend.target, args.channel)
