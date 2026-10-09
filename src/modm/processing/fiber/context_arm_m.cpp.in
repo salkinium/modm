@@ -101,7 +101,9 @@ modm_context_entry()
 
 }
 
-void
+// Not inlined with LTO so that the stack usage analysis finds the function,
+// its argument and the stack of every fiber in the arguments of this call.
+[[gnu::noipa]] void
 modm_context_init(modm_context_t *ctx,
 				  uintptr_t *bottom, uintptr_t *top,
 				  uintptr_t fn, uintptr_t fn_arg)
