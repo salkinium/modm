@@ -35,3 +35,7 @@ Reset_Handler:
 	ldr r0,=__modm_startup
 	bx r0
 	.endfunc
+
+	// The stack usage analysis cannot know that this function uses no stack
+	.global __modm_stack_usage.Reset_Handler
+	.set __modm_stack_usage.Reset_Handler, 0
