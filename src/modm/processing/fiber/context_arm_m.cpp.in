@@ -77,6 +77,13 @@ constexpr size_t StackWordsAll = StackWordsStorage + StackWordsRegisters;
 constexpr size_t StackSizeWord = sizeof(uintptr_t);
 constexpr uintptr_t StackWatermark = 0xf00d'cafe;
 
+// The compiler reports no stack usage for naked functions, therefore the size
+// of the pushed context is passed to the stack usage analysis via ELF symbols.
+asm(".global __modm_stack_usage.modm_context_start	\n"
+	".set __modm_stack_usage.modm_context_start, {{ (9 + 16 if with_fpu else 9) * 4 }}	\n"
+	".global __modm_stack_usage.modm_context_jump	\n"
+	".set __modm_stack_usage.modm_context_jump, {{ (9 + 16 if with_fpu else 9) * 4 }}");
+
 void modm_naked
 modm_context_entry()
 {
