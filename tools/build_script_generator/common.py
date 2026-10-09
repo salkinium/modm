@@ -244,6 +244,8 @@ def common_compiler_flags(compiler, target):
             "-Wa,--gdwarf-5",
             "-Wa,--debug-prefix-map,{project_source_dir}=.",
         ]
+        # Emit call graphs with stack usage for the stack usage analysis
+        flags["ccflags"].append("-fcallgraph-info=su,da")
     if compiler.startswith("gcc"):
         flags["ccflags"] += [
             "-Wduplicated-cond",
@@ -310,6 +312,9 @@ def common_compiler_flags(compiler, target):
         "-ffile-prefix-map={project_source_dir}=.",
         "-ffile-prefix-map={gccpath}=.",
     ]
+    if target.identifier["platform"] not in ["hosted"]:
+        # With LTO the call graph is only generated at link time
+        flags["linkflags"].append("-fcallgraph-info=su,da")
     if target.identifier["family"] != "darwin":
         flags["linkflags"] += [
             "-Wl,--fatal-warnings",
