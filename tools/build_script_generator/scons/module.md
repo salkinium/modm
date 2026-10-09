@@ -111,9 +111,16 @@ scons stack profile={debug|release}
 
 Displays the worst-case stack usage of the main stack and of every fiber
 compared to their sizes, followed by all functions that are not called directly.
-Interrupts execute on the main stack. `!` marks a stack that is too small and
-`>` marks a lower bound, whose causes are listed below the results: unresolved
-indirect calls, recursion or functions without stack usage information.
+The first column is the stack usage during normal operation, the second includes
+the calls that are only made on failure, like printing a failed assertion.
+
+Interrupts execute on the main stack and are preempted by interrupts of another
+priority, so it must fit the deepest handler of every priority in use. The
+enabled interrupts and their priorities are found automatically if they are
+constant, otherwise every interrupt with a handler is assumed to preempt all
+others. `!` marks a stack that is too small and `>` marks a lower bound, whose
+causes are listed below the results: unresolved indirect calls, recursion or
+functions without stack usage information.
 
 Indirect calls are resolved automatically: virtual calls via the vtables, and
 function pointers via the linker table or object they are loaded from or via all
@@ -124,6 +131,7 @@ remains unresolved needs a hint in a comment on the same line of source code:
 callback(); // stack-usage: calls nothing
 handler(event); // stack-usage: calls ^my_handler_.*
 (*entry)(); // stack-usage: calls table:__my_linker_table
+shutdown(); // stack-usage: fatal
 ```
 
 The regex is matched against the signatures of all functions. Hints for code
@@ -134,22 +142,27 @@ that you cannot change are passed as list of `"site=target"` strings in
 
 ```
  $ scons stack
+Stack usage in bytes during normal operation and including calls on failure:
+
 Main stack:
-    900 of  3072 bytes  29%  400 main + 108 interrupt entry + 392 USART3_IRQHandler
-   Assuming that interrupts do not preempt each other.
+    624   1492 of  3072 bytes  49%
+    344    400  main
+    108    108  SysTick: SysTick_Handler
+    172    500  priority 192: USART3_IRQHandler
+      0    484  fault: Undefined_Handler
+   Including 108 bytes interrupt entry per level.
 
 Fiber stacks:
-    452 of  1024 bytes  44%  fiber_ping
-    312 of  1024 bytes  30%  fiber1
-    296 of  1016 bytes  29%  fiber4
-    232 of  1024 bytes  23%  fiber_y1
+    452    452 of  1024 bytes  44%  fiber_ping
+    312    312 of  1024 bytes  30%  fiber1
+    232    232 of  1024 bytes  23%  fiber_y1
    Including 108 bytes interrupt entry.
 
 Call graph roots:
-   400  Reset_Handler
-          __modm_startup > main > modm::fiber::Scheduler::run() > modm_assert_report
-   392  USART3_IRQHandler
-          modm_assert_report > modm_abandon > modm::IOStream::writeInteger(unsigned long)
+   344    400  Reset_Handler
+                 __modm_startup > main > modm::fiber::Scheduler::run() > modm_assert_report
+    64    392  USART3_IRQHandler
+                 modm_assert_report > modm_abandon > modm::IOStream::writeInteger(unsigned long)
 ```
 
 

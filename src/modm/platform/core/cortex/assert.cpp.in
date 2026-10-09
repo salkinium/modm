@@ -74,7 +74,7 @@ modm_assert_report(_modm_assertion_info *cinfo)
 	if ((behavior == uint8_t(Abandonment::DontCare)) or
 		(behavior & uint8_t(Abandonment::Fail)))
 	{
-		modm_abandon(*info);
+		modm_abandon(*info); // stack-usage: fatal
 %% if core.startswith("cortex-m")
 		NVIC_SystemReset();
 %% elif core.startswith("avr")

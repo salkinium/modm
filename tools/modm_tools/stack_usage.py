@@ -17,6 +17,16 @@ Computes the worst-case stack usage of the main stack, of every fiber and of
 every other call graph root from the call graphs that GCC emits when compiling
 with `-fcallgraph-info=su,da` and compares it with the available stack size.
 
+Two results are computed: for normal operation, and including the calls that
+are only made on failure, which are marked with a comment `stack-usage: fatal`
+on their line of source code. In modm this is the call of `modm_abandon`.
+
+Interrupts execute on the main stack and are preempted by interrupts of another
+priority, so the main stack must fit the deepest handler of every priority
+that the enabled interrupts may have. Both are read from the writes to the NVIC
+registers. If these are not constant, every interrupt with a handler is assumed
+to preempt all others. A fault is a failure that can occur at any time.
+
 ```sh
 python3 -m modm_tools.stack_usage path/to/project.elf path/to/buildfolder
 ```
@@ -29,7 +39,8 @@ compiling with `-fdump-tree-optimized-lineno-asmname`, in this order:
    regex searched in `path/to/file.cpp: source code line` of the call. The call
    may then reach all functions whose signature matches the regex `target`, all
    functions in the table between the linker symbols `name_start` and
-   `name_end` if the target is `table:name`, or `nothing`.
+   `name_end` if the target is `table:name`, or `nothing`. The target `fatal`
+   marks any call as only made on failure.
 2. Virtual calls reach the functions in the called slot of the vtables, that
    belong to a base or derived class of the called class.
 3. Calls of a function pointer loaded from a linker table or from an object
@@ -117,6 +128,11 @@ class CallGraph:
         self.signature = {}              # symbol -> (signature, parameters)
         self.mentioned = set()           # all names used other than being called
         self.fibers = {}                 # object -> (stack bottom, top, entry names, function names)
+        self.direct = defaultdict(set)   # (title, called title) -> call sites
+        self.fatal = set()               # (title, called title) that are only called on failure
+        self.enabled = set()             # enabled interrupts, None if not constant
+        self.priority = set()            # (symbol, interrupt, priority), None if not constant
+        self.vectors = {}                # index in vector table -> titles
 
         files = sorted(Path(buildpath).rglob("*.ci"), key=lambda f: f.stat().st_mtime)
         # With LTO the whole call graph is generated last by the linker, any
@@ -150,7 +166,9 @@ class CallGraph:
             elif match := _EDGE.match(line):
                 source, target, site = match.groups()
                 if target == _INDIRECT: self.indirect[source].add(site)
-                else: self.calls[source].add(target)
+                else:
+                    self.calls[source].add(target)
+                    if site: self.direct[(source, target)].add(site)
 
     def _parse_dump(self, file):
         """Finds the type of all indirect calls in the optimized GIMPLE."""
@@ -200,6 +218,14 @@ class CallGraph:
                             re.findall(r"_\d+ \+ (\d+)\b", t)))
                         self.fibers[name[1]] = (offset(arguments[1], traced[1][1]), offset(arguments[2], traced[2][1]),
                                                 traced[3][0], traced[4][0])
+                if nvic := re.search(r"NVIC_Type \*\)\d+B\]\.(IPR?|ISER)\[([^\]]+)\] =(?:\{v\})? ([^;]+);", line):
+                    # Interrupts are enabled and their priority is set via these registers
+                    register, index, value = nvic.groups()
+                    constant = index.isdigit() and value.isdigit()
+                    number = lambda text: int(text) if text.isdigit() else None
+                    if register != "ISER": self.priority.add((symbol, number(index), number(value)))
+                    elif not constant: self.enabled.add(None)
+                    else: self.enabled |= {int(index) * 32 + bit for bit in range(32) if int(value) >> bit & 1}
                 # names that are not called directly may have their address taken
                 self.mentioned.update(re.findall(r"(?<![\w.$])(" + _TOKEN + r")(?! \()", line))
                 if virtual := re.search(r"OBJ_TYPE_REF\([^;]+;\((.*?)\)[^;]*?->(\d+)B\) \(", line):
@@ -361,8 +387,11 @@ class CallGraph:
                 start, size = starts.get(end.name[:-4]), 0
                 if start: size = end["st_value"] - start["st_value"]
                 if start and size >= 0 and isinstance(start["st_shndx"], int):
-                    self.table[end.name[:-4]] = {
-                        t for _, _, t in pointers(start["st_shndx"], start["st_value"], size)}
+                    entries = list(pointers(start["st_shndx"], start["st_value"], size))
+                    self.table[end.name[:-4]] = {t for _, _, t in entries}
+                    if end.name.startswith("__vector_table") and entries:
+                        self.vectors = defaultdict(set)
+                        for _, index, title in entries: self.vectors[index].add(title)
                     self.ranges[end.name[:-4]] = (start["st_value"], end["st_value"])
             self._virtual = set()
             for symbol in symbols:
@@ -415,21 +444,32 @@ class CallGraph:
         # an object may also store functions of unknown type
         return targets if stored else None
 
+    def _code(self, site):
+        """Returns `(file, column, source code line)` of a call site."""
+        try:
+            file, line, column = site.rsplit(":", 2)
+            if file not in self._files:
+                try: self._files[file] = Path(file).read_text(errors="replace").splitlines()
+                except OSError: self._files[file] = []
+            return file, int(column), self._files[file][int(line) - 1]
+        except (ValueError, IndexError):
+            return site, 1, ""
+
+    def _hints(self, site):
+        """Returns the hints for a call site."""
+        file, _, code = self._code(site)
+        return [target for hint, target in self.hints if re.search(hint, file + ": " + code)] + \
+            re.findall(r"stack-usage: (?:calls )?(.+?)\s*(?:\*/)?$", code)
+
     def _targets(self, source, site):
         """Resolves an indirect call site to all functions it may call."""
-        file = site
-        try:
-            file, line, col = site.rsplit(":", 2)
-            code = Path(file).read_text(errors="replace").splitlines()[int(line) - 1]
-            # the column points either at the callee or its opening parenthesis
-            names = re.findall(r"[A-Za-z_]\w*", code[:int(col) - 1])[-1:] + \
-                    re.findall(r"^[\W]*([A-Za-z_]\w*)", code[int(col) - 1:])
-        except (OSError, ValueError, IndexError):
-            code, names = "", []
-        hints = [target for hint, target in self.hints if re.search(hint, file + ": " + code)]
-        hints += re.findall(r"stack-usage: calls (.+?)\s*(?:\*/)?$", code)
-        for target in hints:
+        _, column, code = self._code(site)
+        # the column points either at the callee or its opening parenthesis
+        names = re.findall(r"[A-Za-z_]\w*", code[:column - 1])[-1:] + \
+                re.findall(r"^[\W]*([A-Za-z_]\w*)", code[column - 1:])
+        for target in self._hints(site):
             if target in ("", "nothing"): return set()
+            if target == "fatal": continue
             if target.startswith("table:"):
                 return self.table.get(target[len("table:"):], set())
             return {t for t in self.stack if re.search(target, self.label[t])}
@@ -447,6 +487,7 @@ class CallGraph:
         return targets
 
     def resolve(self):
+        self._files = {}     # file -> lines of source code
         self.entries = set() # titles that call the function of a fiber
         self.tables = set()  # linker tables that are iterated
         for source, sites in self.indirect.items():
@@ -454,20 +495,33 @@ class CallGraph:
                 if "fiber/task_impl.hpp" in site and _FIBER.match(self.label.get(source, "")):
                     self.entries.add(source)
                     continue
-                self.calls[source] |= self._targets(source, site)
+                targets = self._targets(source, site)
+                self.calls[source] |= targets
+                if "fatal" in self._hints(site):
+                    self.fatal |= {(source, target) for target in targets}
+        # A call is fatal, if the program does not continue normally after it
+        self.fatal |= {edge for edge, sites in self.direct.items()
+                       if any("fatal" in self._hints(site) for site in sites)}
         # A fiber constructed from a function may execute any function without arguments
         self.free = self._pointer({"type": _signature("void", []), "origin": set()}) or set()
 
+    def _reset(self):
+        # results with and without fatal calls
+        self._cache, self._cycle, self._index = ({False: {}, True: {}} for _ in range(3))
+
     def fiber(self, title, targets):
-        """Returns `(bytes, exact, chain)` of a fiber entry calling its function."""
+        """Returns `(bytes, exact, chain)` without and with fatal calls of a
+        fiber entry calling its function."""
         # LTO merges identical entry functions, thus only the root tells the
         # fibers apart and each one must be evaluated with its own function
-        calls, self._cache, self._cycle, self._index = self.calls, {}, {}, {}
+        calls = self.calls
         self.calls = defaultdict(set, calls)
         for entry in self.entries:
             self.calls[entry] = calls[entry] | targets
-        result = self.depth(title)
-        self.calls, self._cache, self._cycle, self._index = calls, {}, {}, {}
+        self._reset()
+        result = self.depth(title, False), self.depth(title, True)
+        self.calls = calls
+        self._reset()
         return result
 
     def _called(self):
@@ -479,18 +533,19 @@ class CallGraph:
         if title in self.stack and _bare(title) not in self.globals: return [title]
         return self.bare.get(_bare(title), [])
 
-    def _callees(self, title):
+    def _callees(self, title, fatal):
         """Returns the definitions of all functions a function calls."""
-        return sorted({d for target in self.calls.get(title, []) for d in self._define(target)})
+        return sorted({d for target in self.calls.get(title, [])
+                       if fatal or (title, target) not in self.fatal for d in self._define(target)})
 
-    def _find_cycles(self, title):
+    def _find_cycles(self, title, fatal):
         """Assigns all functions reachable from a function to their recursion cycle."""
-        index, low, stack = self._index, {}, []
+        index, low, stack = self._index[fatal], {}, []
         def visit(node):
             # Tarjan's strongly connected components algorithm
             index[node] = low[node] = len(index)
             stack.append(node)
-            for callee in self._callees(node):
+            for callee in self._callees(node, fatal):
                 if callee not in index:
                     visit(callee)
                     low[node] = min(low[node], low[callee])
@@ -498,19 +553,20 @@ class CallGraph:
             if low[node] == index[node]:
                 cycle = tuple(sorted(stack[stack.index(node):]))
                 del stack[stack.index(node):]
-                for member in cycle: self._cycle[member] = cycle
+                for member in cycle: self._cycle[fatal][member] = cycle
         sys.setrecursionlimit(max(sys.getrecursionlimit(), 10000))
         visit(title)
 
-    def depth(self, title):
-        """Returns `(bytes, exact, deepest call chain)` of a function."""
-        if title not in self._cycle: self._find_cycles(title)
-        cycle = self._cycle[title]
-        if cycle not in self._cache:
+    def depth(self, title, fatal=True):
+        """Returns `(bytes, exact, deepest call chain)` of a function, optionally
+        without the calls that are only made on failure."""
+        if title not in self._cycle[fatal]: self._find_cycles(title, fatal)
+        cycle = self._cycle[fatal][title]
+        if cycle not in self._cache[fatal]:
             # The depth of a recursion is unknown, so as lower bound every
             # function of its cycle is assumed to be called once
             size, deepest = 0, (0, True, [])
-            exact = len(cycle) == 1 and title not in self._callees(title)
+            exact = len(cycle) == 1 and title not in self._callees(title, fatal)
             if not exact: self.recursive.add(cycle)
             for member in cycle:
                 size += self.stack.get(member, 0)
@@ -520,23 +576,55 @@ class CallGraph:
                 if missing or member in self.unbounded or \
                    any(site in self.unresolved for site in self.indirect.get(member, [])):
                     exact = False
-                for callee in self._callees(member):
+                for callee in self._callees(member, fatal):
                     if callee not in cycle:
-                        deepest = max(deepest, self.depth(callee), key=lambda result: result[0])
+                        deepest = max(deepest, self.depth(callee, fatal), key=lambda result: result[0])
             chain = ["(recursion of {} functions)".format(len(cycle))] if len(cycle) > 1 else []
-            self._cache[cycle] = (size + deepest[0], exact and deepest[1], chain + deepest[2])
-        size, exact, chain = self._cache[cycle]
+            self._cache[fatal][cycle] = (size + deepest[0], exact and deepest[1], chain + deepest[2])
+        size, exact, chain = self._cache[fatal][cycle]
         return size, exact, [title] + chain
 
     def roots(self):
         """Returns `[(bytes, exact, chain)]` of all functions without caller."""
         self.unknown, self.recursive = set(), set()
-        self._cache, self._cycle, self._index = {}, {}, {}
+        self._reset()
         called = self._called()
         # functions removed by the linker are not roots
         return sorted((self.depth(t) for t in sorted(self.stack)
                        if t not in called and _bare(t) in self.linked),
                       key=lambda r: -r[0])
+
+    def interrupts(self):
+        """Returns `({level: titles}, titles)` of the handlers of all interrupts
+        grouped by what cannot preempt each other, and of all faults."""
+        handlers = {index: frozenset(t for t in titles if t in self.stack)
+                    for index, titles in self.vectors.items() if index >= 2}
+        if not handlers: return {}, set()
+        # unused interrupts all have the same handler
+        unused = max(handlers.values(), key=list(handlers.values()).count)
+        interrupts = {index - 16 for index in handlers if index >= 16 and handlers[index] != unused}
+        # An interrupt that is never enabled cannot occur
+        if self.enabled and None not in self.enabled: interrupts = self.enabled & {i - 16 for i in handlers}
+        faults = set().union(*(handlers.get(index, set()) for index in range(2, 7)))
+        # The handlers of faults and unused interrupts only change priorities on failure
+        failed = {_bare(t) for t in faults | unused}
+        priorities, levels = defaultdict(set), defaultdict(set)
+        for symbol, interrupt, priority in self.priority:
+            if symbol not in failed: priorities[interrupt].add(priority)
+        for interrupt in sorted(interrupts):
+            # The priority after reset is 0, and a priority that is set for an
+            # unknown interrupt may be set for every interrupt
+            priority = (priorities.get(interrupt) or {0}) | priorities.get(None, set())
+            # Only an interrupt of another priority preempts, so an interrupt
+            # adds to the level of every priority it may have
+            if None in priority: levels["interrupt {}".format(interrupt)] |= handlers[interrupt + 16]
+            else:
+                for value in priority: levels["priority {:3}".format(value)] |= handlers[interrupt + 16]
+        # ponytail: the priority of system exceptions is not read from the SCB,
+        # so each is assumed to preempt everything else
+        for index, name in ((11, "SVCall"), (12, "DebugMonitor"), (14, "PendSV"), (15, "SysTick")):
+            if handlers.get(index, unused) != unused: levels[name] |= handlers[index]
+        return levels, faults
 
 
 def format(elf, buildpath, hints=None, objdump="arm-none-eabi-objdump"):
@@ -545,41 +633,52 @@ def format(elf, buildpath, hints=None, objdump="arm-none-eabi-objdump"):
     roots = graph.roots()
     def names(titles):
         return [graph.label.get(t) or _demangle([_bare(t)])[0] for t in titles]
-    def usage(need, exact, size, text):
-        return "{}{}{:5} of {:5} bytes {:3.0f}%  {}".format(
-            "!" if need > size else " ", " " if exact else ">", need, size, 100 * need / size, text)
+    def usage(normal, fatal, exact, size, text):
+        return "{}{}{:5} {:6} of {:5} bytes {:3.0f}%  {}".format(
+            "!" if fatal > size else " ", " " if exact else ">", normal, fatal, size, 100 * fatal / size, text)
+    def deepest(titles, fatal):
+        return max((graph.depth(t, fatal) for t in sorted(titles)), default=(0, True, [""]))
 
     # An interrupt pushes its frame onto the current stack, but executes on the main stack
     frame = graph.value.get("EXCEPTION_FRAME_SIZE", 0)
-    output = []
-    for size, exact, chain in roots:
+    output = ["Stack usage in bytes during normal operation and including calls on failure:\n"]
+    for _, _, chain in roots:
         # The main stack starts at the entry point of the program
         if _bare(chain[0]) not in graph.entry: continue
-        handlers = {t for name, table in graph.table.items() if name.startswith("__vector_table")
-                    for t in table if t in graph.stack and _bare(t) not in graph.entry}
-        hsize, hexact, hchain = max((graph.depth(t) for t in handlers), default=(0, True, [""]))
+        levels, faults = graph.interrupts()
+        rows = [(deepest(chain[:1], False), deepest(chain[:1], True), 0, "main")]
+        # Every level of interrupts that preempt each other adds its deepest handler
+        rows += [(deepest(titles, False), deepest(titles, True), frame,
+                  "{}: {}".format(level, names(deepest(titles, True)[2][:1])[0]))
+                 for level, titles in sorted(levels.items())]
+        # A fault is a failure and can occur anywhere
+        if faults: rows.append(((-frame, True, []), deepest(faults, True), frame,
+                                "fault: " + names(deepest(faults, True)[2][:1])[0]))
         output.append("Main stack:\n" + usage(
-            size + frame + hsize, exact and hexact,
-            graph.value["__main_stack_top"] - graph.value["__main_stack_bottom"],
-            "{} main + {} interrupt entry + {} {}".format(size, frame, hsize, names(hchain[:1])[0])))
-        output.append("   Assuming that interrupts do not preempt each other.\n")
+            sum(n[0] + entry for n, _, entry, _ in rows), sum(f[0] + entry for _, f, entry, _ in rows),
+            all(n[1] and f[1] for n, f, _, _ in rows),
+            graph.value["__main_stack_top"] - graph.value["__main_stack_bottom"], ""))
+        output += ["  {:5} {:6}  {}".format(n[0] + entry, f[0] + entry, text) for n, f, entry, text in rows]
+        if levels or faults: output.append("   Including {} bytes interrupt entry per level.".format(frame))
+        output.append("")
 
     # The function and its argument are stored at the top of the fiber stack
     overhead, stacks, entries = 2 * graph.width + frame, {}, set()
+    def stack(title, targets, size, text):
+        normal, fatal = graph.fiber(title, targets)
+        return (fatal[0], usage(normal[0] + overhead, fatal[0] + overhead, normal[1] and fatal[1], size, text))
     for name, (bottom, top, entry, function) in graph.fibers.items():
         titles = {t for e in entry & graph.linked for t in graph.bare[e] if t in graph.stack}
         targets = {t for f in function & graph.linked for t in graph.bare[f]}
         if not titles or top <= bottom: continue
-        size, exact, _ = max(graph.fiber(t, targets) for t in titles)
-        stacks[name] = (size + overhead, usage(size + overhead, exact, top - bottom, _demangle([name])[0]))
+        stacks[name] = max(stack(t, targets, top - bottom, _demangle([name])[0]) for t in sorted(titles))
         entries |= titles
     for _, _, chain in roots:
         # Fibers that are not constructed from a constant are only known by their type
         if chain[0] in entries or not (fiber := _FIBER.match(graph.label.get(chain[0], ""))): continue
         targets = graph.free if re.search(r"\([&*]\)", fiber[2]) else \
             {t for t in graph.stack if graph.label[t].startswith(fiber[2] + "::")}
-        size, exact, _ = graph.fiber(chain[0], targets)
-        stacks[chain[0]] = (size + overhead, usage(size + overhead, exact, int(fiber[1]), fiber[2]))
+        stacks[chain[0]] = stack(chain[0], targets, int(fiber[1]), fiber[2])
     if stacks:
         output.append("Fiber stacks:")
         output += [text for _, text in sorted(stacks.values(), reverse=True)]
@@ -587,8 +686,10 @@ def format(elf, buildpath, hints=None, objdump="arm-none-eabi-objdump"):
 
     output.append("Call graph roots:")
     for size, exact, chain in roots:
-        output.append("{}{:5}  {}".format(" " if exact else ">", size, names(chain[:1])[0]))
-        output.append("          " + " > ".join(n[:40] for n in names(chain[1:])))
+        normal = graph.depth(chain[0], False)
+        output.append("{}{:5} {:6}  {}".format(" " if exact and normal[1] else ">", normal[0], size,
+                                              names(chain[:1])[0]))
+        output.append("                 " + " > ".join(n[:40] for n in names(chain[1:])))
     if graph.unresolved:
         output.append("\nUnresolved indirect calls:\n  " + "\n  ".join(sorted(graph.unresolved)))
     for cycle in sorted(graph.recursive):
