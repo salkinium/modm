@@ -59,7 +59,7 @@ new_assert(size_t size)
 		 * allocation attempts until new handler does not return or becomes a
 		 * null pointer, at which time it throws std::bad_alloc.
 		 */
-		if (std::get_new_handler()) std::get_new_handler()();
+		if (std::get_new_handler()) std::get_new_handler()(); // stack-usage: calls nothing
 		else break;
 	}
 %% else
