@@ -232,11 +232,18 @@ def common_compiler_flags(compiler, target):
         "-ffile-prefix-map={project_source_dir}=.",
         "-ffile-prefix-map={gccpath}=.",
 
-        "-gdwarf-3",
+        "-gdwarf-5",
     ]
 
     if target.identifier["platform"] not in ["hosted"]:
         flags["ccflags"].append("-fshort-wchar")
+        # arm-none-eabi-gcc does not tell the assembler about the DWARF
+        # version, which then generates line tables in DWARF 3. The assembler
+        # then adds its working directory, which must be mapped separately.
+        flags["ccflags"] += [
+            "-Wa,--gdwarf-5",
+            "-Wa,--debug-prefix-map,{project_source_dir}=.",
+        ]
     if compiler.startswith("gcc"):
         flags["ccflags"] += [
             "-Wduplicated-cond",
@@ -288,7 +295,7 @@ def common_compiler_flags(compiler, target):
 
     # flags only for Assembly
     flags["asflags"] = [
-        "-gdwarf-3",
+        "-gdwarf-5",
         # "-xassembler-with-cpp",
     ]
     if target.identifier["platform"] not in ["hosted"]:
