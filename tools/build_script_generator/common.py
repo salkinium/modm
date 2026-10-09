@@ -295,6 +295,7 @@ def common_compiler_flags(compiler, target):
 
     # flags only for Assembly
     flags["asflags"] = [
+        "-ffile-prefix-map={project_source_dir}=.",
         "-gdwarf-5",
         # "-xassembler-with-cpp",
     ]
@@ -305,6 +306,9 @@ def common_compiler_flags(compiler, target):
     flags["linkflags"] = [
         "-ffunction-sections",
         "-fdata-sections",
+        # LTO generates code at link time without the options below
+        "-ffile-prefix-map={project_source_dir}=.",
+        "-ffile-prefix-map={gccpath}=.",
     ]
     if target.identifier["family"] != "darwin":
         flags["linkflags"] += [
