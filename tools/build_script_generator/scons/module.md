@@ -103,6 +103,47 @@ Removed {debug|release}/blink.lss
 ```
 
 
+#### scons stack
+
+```
+scons stack profile={debug|release}
+```
+
+Displays the worst-case stack usage of the main stack and of every fiber
+compared to their sizes, followed by all functions that are not called directly.
+Interrupts execute on the main stack. `!` marks a stack that is too small and
+`>` marks a lower bound, whose causes are listed below the results: unresolved
+indirect calls, recursion or functions without stack usage information.
+
+Indirect calls through function pointers cannot be resolved automatically. You
+can add a list of `"site=target"` hints as `env["MODM_STACK_HINTS"]`, where
+`site` is a regex matching the `path/to/file.cpp: source code line` of the call
+and `target` is a regex matching the signatures of all functions it may call.
+(\* *only ARM Cortex-M targets*)
+
+```
+ $ scons stack
+Main stack:
+ >  948 of  3072 bytes  31%  432 main + 108 interrupt entry + 408 USART3_IRQHandler
+   Assuming that interrupts do not preempt each other.
+
+Fiber stacks:
+    468 of  1024 bytes  46%  fiber_ping::'lambda'()
+    320 of  1024 bytes  31%  void (&)()
+    232 of  1024 bytes  23%  fiber_y1::'lambda'()
+   Including 108 bytes interrupt entry, excluding captured variables of lambdas.
+
+Call graph roots:
+>  432  __modm_startup
+          main > modm::fiber::Scheduler::run() > modm_assert_report > modm_abandon
+>  408  USART3_IRQHandler
+          modm_assert_report > modm_abandon > modm::IOStream::writeInteger(unsigned long)
+
+Unresolved indirect calls:
+  modm/src/modm/utils/inplace_function.hpp:73:53
+```
+
+
 #### scons size
 
 ```

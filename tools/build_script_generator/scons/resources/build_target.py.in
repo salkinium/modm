@@ -45,6 +45,12 @@ def build_target(env, sources):
 	%% if core.startswith("cortex-m")
 	env.Alias("uf2", env.UF2(chosen_program))
 
+	def stack_usage_action(target, source, env):
+		from modm_tools import stack_usage
+		print(stack_usage.format(source[0].path, env["BUILDPATH"], env.get("MODM_STACK_HINTS"),
+								 env.subst("$OBJDUMP")))
+	env.AlwaysBuild(env.Alias("stack", chosen_program, env.Action(stack_usage_action, cmdstr=None)))
+
 	env.Alias("log-itm", env.LogItmOpenOcd())
 	env.Alias("log-rtt", env.LogRttOpenOcd())
 	env.Alias("log-itm-jlink", env.LogItmJLink())

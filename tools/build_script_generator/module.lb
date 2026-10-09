@@ -218,7 +218,8 @@ def build(env):
         tools.add("unit_test")
     if is_cortex_m:
         tools.update({"bmp", "openocd", "crashdebug", "gdb", "backend",
-                      "itm", "rtt", "build_id", "size", "elf2uf2", "jlink"})
+                      "itm", "rtt", "build_id", "size", "elf2uf2", "jlink",
+                      "stack_usage"})
         if platform in ["sam"]:
             tools.update({"bossac"})
     elif platform in ["avr"]:
