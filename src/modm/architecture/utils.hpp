@@ -84,6 +84,11 @@
 	/// @note Please use `[[noreturn]]` in a C++ context instead.
 	#define modm_noreturn
 
+	/// Fails the compilation if the function uses the FPU, e.g. in an interrupt:
+	/// `MODM_ISR(TIM2, modm_nofpu)`. Only checked by GCC on ARM devices with FPU.
+	/// @note Called functions that are not inlined are not checked.
+	#define modm_nofpu
+
 	/// Places a function in the fastest executable memory:
 	/// instruction cache, core coupled memory or SRAM as fallback.
 	#define modm_fastcode
@@ -151,6 +156,12 @@
 	#define modm_noreturn			__attribute__((noreturn))
 	#define modm_warn_unused_result	__attribute__((warn_unused_result))
 	#define modm_naked				__attribute__((naked))
+
+	#if defined(__ARM_FP) && !defined(__clang__)
+	#	define modm_nofpu			__attribute__((target("general-regs-only")))
+	#else
+	#	define modm_nofpu
+	#endif
 
 	#ifdef MODM_COMPILER_MINGW
 	 	// FIXME: Windows Object Format PE does not support weak symbols

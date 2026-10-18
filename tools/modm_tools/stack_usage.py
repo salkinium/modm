@@ -29,6 +29,9 @@ to preempt all others. A fault is a failure that can occur at any time.
 On AVR an interrupt executes on the current stack, also of a fiber, and does
 not preempt other interrupts.
 
+Interrupts that use the FPU during normal operation are listed with the call
+chain to the first FPU instruction, which `modm_nofpu` prevents in the handler.
+
 A tail call jumps to another function after removing the frame of the caller,
 which is found in the disassembly, so the frames are not added up.
 
@@ -369,6 +372,7 @@ class CallGraph:
                 listing = ""
             self.address = {name: address for address, names in functions.items() for name in names}
             self.tails = set() # (address, called address) of calls that remove the frame first
+            self.fpu = set()   # functions with FPU instructions
             # The disassembly is split at every symbol, also at local labels within a function
             blocks = []
             for block in re.split(r"\n\n", listing):
@@ -387,6 +391,7 @@ class CallGraph:
                 for jump in jumps - calls - {match[1]}:
                     if jump in self.address and match[1] in self.address:
                         self.tails.add((self.address[match[1]], self.address[jump]))
+                if re.search(r"^ +[0-9a-f]+:\t[0-9a-f ]+\tv[a-z]", function, re.M): self.fpu.add(match[1])
                 if not (title := missing.get(match[1])): continue
                 self.calls[title] |= calls | jumps
                 if re.search(r"\tblx\tr|\tbx\t(?!lr)", function):
@@ -574,6 +579,17 @@ class CallGraph:
         return sorted({d for target in self.calls.get(title, [])
                        if fatal or (title, target) not in self.fatal for d in self._define(target)})
 
+    def fpu_path(self, title):
+        """Returns the shortest call chain from a function to an FPU instruction during normal operation."""
+        paths, queue = {title: [title]}, [title]
+        for title in queue:
+            if _bare(title) in self.fpu: return paths[title]
+            for callee in self._callees(title, False):
+                if callee not in paths:
+                    paths[callee] = paths[title] + [callee]
+                    queue.append(callee)
+        return None
+
     def _find_cycles(self, title, fatal):
         """Assigns all functions reachable from a function to their recursion cycle."""
         index, low, stack = self._index[fatal], {}, []
@@ -712,7 +728,9 @@ def analyze(elf, buildpath, hints=None, objdump="arm-none-eabi-objdump"):
             "size": (graph.value["__stack"] + 1 - (graph.value["__heap_start"] & 0xffff)) if graph.avr else
                     graph.value["__main_stack_top"] - graph.value["__main_stack_bottom"],
             "rows": [(n[0] + entry, f[0] + entry, text) for n, f, entry, text in rows],
-            "interrupts": bool(levels or faults)}
+            "interrupts": bool(levels or faults),
+            # An interrupt using the FPU requires the FPU registers to be saved on its entry
+            "fpu": sorted(path for titles in levels.values() for t in titles if (path := graph.fpu_path(t)))}
 
     # The function and its argument are stored at the top of the fiber stack
     overhead, entries, fibers = 2 * graph.width + frame, set(), result["fibers"]
@@ -766,6 +784,9 @@ def format(elf, buildpath, hints=None, objdump="arm-none-eabi-objdump"):
         output.append("{}{:5} {:6}  {}".format(" " if exact and normal[1] else ">", normal[0], size,
                                               names(chain[:1])[0]))
         output.append("                 " + " > ".join(n[:40] for n in names(chain[1:])))
+    if main and main["fpu"]:
+        output.append("\nInterrupts using the FPU:\n  " +
+                      "\n  ".join(" > ".join(n[:40] for n in names(path)) for path in main["fpu"]))
     if graph.unresolved:
         output.append("\nUnresolved indirect calls:\n  " + "\n  ".join(sorted(graph.unresolved)))
     for cycle in sorted(graph.recursive):
