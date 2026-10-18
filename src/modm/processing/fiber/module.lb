@@ -50,7 +50,9 @@ def build(env):
         env.substitutions["num_cores"] = cores
 
     if core.startswith("cortex-m"):
-        env.substitutions["stack_minimum"] = (2 + 9 + (16 if with_fpu else 0)) * 4
+        # Interrupts push their exception frame onto the fiber stack
+        exception_frame = 0x6C if with_fpu else 0x20
+        env.substitutions["stack_minimum"] = (2 + 9 + (16 if with_fpu else 0)) * 4 + exception_frame
         env.substitutions["default_stack_size"] = 1024
         env.template("context_arm_m.cpp.in")
 

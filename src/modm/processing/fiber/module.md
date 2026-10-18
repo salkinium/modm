@@ -129,8 +129,8 @@ modm::Fiber fiber([ran=false]
 The most important customization is the fiber stack size expressed in bytes:
 
 ```cpp
-modm::Fiber<128> fiber1(...);
-modm::Fiber<256> fiber2(...);
+modm::Fiber<256> fiber1(...);
+modm::Fiber<512> fiber2(...);
 ```
 
 The `Fiber` class is intentionally constructed at runtime, so that it does not
@@ -352,8 +352,10 @@ Therefore the default stack size is a fairly large **512B**.
 On Cortex-M, the main function is entered using the MSP in Handler mode. After
 calling `modm::fiber::Scheduler::run()` the PSP is used as a Fiber stack
 pointer in Thread mode. Therefore all interrupts are using the main stack whose
-size is defined by the `modm:platform:cortex-m:main_stack_size` option and will
-not increase the fiber stack size at all.
+size is defined by the `modm:platform:cortex-m:main_stack_size` option.
+However, the hardware pushes the exception frame onto the fiber stack before
+switching to the main stack, so each fiber stack must include one exception
+frame of 32B, or 108B on devices with FPU.
 
 The default stack size is **1KiB**.
 
