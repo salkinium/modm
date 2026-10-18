@@ -88,7 +88,9 @@ modm_context_entry()
 #define p2u(...) reinterpret_cast<uint8_t*>(__VA_ARGS__)
 #define u2p(...) reinterpret_cast<uintptr_t*>(__VA_ARGS__)
 
-void
+// Not inlined with LTO so that the stack usage analysis finds the function,
+// its argument and the stack of every fiber in the arguments of this call.
+[[gnu::noipa]] void
 modm_context_init(modm_context_t *ctx,
 				  uintptr_t *bottom, uintptr_t *top,
 				  uintptr_t fn, uintptr_t fn_arg)
@@ -179,6 +181,22 @@ modm_context_end(uintptr_t retval)
 		"pop r\\regs			\n\t" \
 		".endr					\n\t"
 
+// The compiler reports no stack usage for naked functions, therefore the size
+// of the pushed context and return address is passed to the stack usage
+// analysis via ELF symbols.
+#ifdef __AVR_3_BYTE_PC__
+#	define MODM_CONTEXT_SIZE "21"
+#else
+#	define MODM_CONTEXT_SIZE "20"
+#endif
+asm(".global __modm_stack_usage.modm_context_jump_entry	\n"
+	".set __modm_stack_usage.modm_context_jump_entry, " MODM_CONTEXT_SIZE "	\n"
+	".global __modm_stack_usage.modm_context_jump	\n"
+	".set __modm_stack_usage.modm_context_jump, " MODM_CONTEXT_SIZE "	\n"
+	// only restores the context of the next fiber
+	".global __modm_stack_usage.modm_context_jump_return	\n"
+	".set __modm_stack_usage.modm_context_jump_return, 0");
+
 static_assert(offsetof(modm_context_t, sp) == 0);
 static_assert(offsetof(modm_context_t, bottom) == 2);
 
@@ -229,6 +247,7 @@ modm_context_jump(modm_context_t*, modm_context_t*)
 		"brne 1f				\n\t"
 
 		// r24:r25 is unmodified, thus can be used to pass a return value
+	".type modm_context_jump_return, @function	\n\t"
 	"modm_context_jump_return:	\n\t"
 
 		// Load the SP of next fiber

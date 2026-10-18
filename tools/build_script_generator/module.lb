@@ -223,7 +223,7 @@ def build(env):
         if platform in ["sam"]:
             tools.update({"bossac"})
     elif platform in ["avr"]:
-        tools.update({"avrdude"})
+        tools.update({"avrdude", "stack_usage"})
 
     env.outbasepath = "modm/"
     env.substitutions = {"tools": tools}

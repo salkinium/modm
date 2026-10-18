@@ -63,7 +63,8 @@ modm_assert_report(_modm_assertion_info *cinfo)
 		 handler < &__assertion_table_end; handler++)
 	{
 %% if core.startswith("avr")
-		behavior |= (uint8_t)((AssertionHandler)pgm_read_ptr(handler))(*info);
+		// The handler is read from flash, which hides the table from the stack usage analysis
+		behavior |= (uint8_t)((AssertionHandler)pgm_read_ptr(handler))(*info); // stack-usage: calls table:__assertion_table
 %% else
 		behavior |= (uint8_t)(*handler)(*info);
 %% endif

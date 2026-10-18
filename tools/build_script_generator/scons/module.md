@@ -138,7 +138,7 @@ The regex is matched against the signatures of all functions. Hints for code
 that you cannot change are passed as list of `"site=target"` strings in
 `env["MODM_STACK_HINTS"]`, where `site` is a regex matching the
 `path/to/file.cpp: source code line` of the call.
-(\* *only ARM Cortex-M targets*)
+(\* *only ARM Cortex-M and AVR targets*)
 
 ```
  $ scons stack
