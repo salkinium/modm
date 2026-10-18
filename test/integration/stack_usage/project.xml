@@ -1,0 +1,15 @@
+<library>
+  <!-- Compares the static stack usage analysis with the stack usage measured
+       via watermarks: `python3 compare.py` -->
+  <extends>modm:nucleo-h563zi</extends>
+  <!-- <extends>modm:nucleo-f072rb</extends> -->
+  <!-- <extends>modm:mega-2560-pro</extends> -->
+  <options>
+    <!-- Required for modm:mega-2560-pro -->
+    <!-- <option name="modm:io:with_printf">yes</option> -->
+  </options>
+  <modules>
+    <module>modm:build:scons</module>
+    <module>modm:processing:fiber</module>
+  </modules>
+</library>
