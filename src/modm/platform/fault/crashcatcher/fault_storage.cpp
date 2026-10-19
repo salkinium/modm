@@ -29,6 +29,7 @@ static constexpr uint32_t magic_end = 0xC0FFEEEE;
 static modm_section(".noinit") uint32_t marker_start;
 static modm_section(".noinit") const uint8_t* marker_end_ptr;
 static const uint8_t* report_end{0};
+static bool storage_full{false};
 extern "C" uint32_t g_crashCatcherStack[];
 
 // Writes back memory in aligned 64-bit words. The SRAM ECC controller of some
@@ -101,6 +102,7 @@ void
 FaultStorage::openWrite()
 {
 	current = begin();
+	storage_full = false;
 	marker_start = magic_start;
 	marker_end_ptr = nullptr;
 }
@@ -138,8 +140,12 @@ FaultStorage::write(const uint8_t *data, size_t size)
 {
 	while(size--)
 	{
+		if (storage_full) return false;
 		*const_cast<uint8_t*>(current.pos) = *data++;
+		const auto previous = current.pos;
 		current++;
+		// The report is truncated and discarded when all heaps are full
+		storage_full = (current.pos == previous);
 	}
 	return true;
 }
@@ -190,8 +196,8 @@ FaultStorage::Iterator&
 FaultStorage::Iterator::operator++()
 {
 	auto t = (const table_pool_t *)table;
-	if (pos >= t->end or (pos + 1) == reinterpret_cast<const uint8_t*>(g_crashCatcherStack)) {
-		if (t < __table_heap_end) {
+	if ((pos + 1) >= t->end or (pos + 1) == reinterpret_cast<const uint8_t*>(g_crashCatcherStack)) {
+		if (t + 1 < __table_heap_end) {
 			t++;
 			pos = t->start;
 			table = (const void*)t;
