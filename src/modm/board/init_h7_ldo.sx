@@ -1,0 +1,58 @@
+/*
+ * Copyright (c) 2026, Kaelin Laundry
+ *
+ * This file is part of the modm project.
+ *
+ * This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
+ */
+// ----------------------------------------------------------------------------
+
+// Configure the STM32H7 supply before anything touches RAM.
+//
+// RM0433 and RM0468 "System supply startup" require PWR_CR3 to be written
+// while the core is in Run*, and prohibit RAM accesses and VOS changes until
+// ACTVOSRDY is set, so this function must not use the stack.
+//
+// The boards using this file connect VDDLDO and decouple both VCAP pins,
+// therefore the internal LDO must supply VCORE.
+
+.equ	PWR_BASE, 0x58024800
+.equ	PWR_CSR1_OFFSET, 0x04
+.equ	PWR_CR3_OFFSET, 0x0c
+.equ	PWR_CR3_SUPPLY_MASK, 0x07
+.equ	PWR_CR3_LDO, 0x02
+.equ	PWR_CSR1_ACTVOSRDY, 0x2000
+
+.globl	__modm_initialize_board
+	.text
+	.syntax	unified
+	.align	2
+	.type	__modm_initialize_board, %function
+	.func	__modm_initialize_board
+__modm_initialize_board:
+	ldr	r0,=PWR_BASE
+	ldr	r1,[r0,#PWR_CR3_OFFSET]
+	// Clear the write-once SCUEN, LDOEN and BYPASS fields, then select the LDO
+	bic	r1,r1,#PWR_CR3_SUPPLY_MASK
+	orr	r1,r1,#PWR_CR3_LDO
+	str	r1,[r0,#PWR_CR3_OFFSET]
+
+	// A system reset does not reopen the write-once fields, so fail-stop if an
+	// earlier boot stage locked a supply topology that does not match the board
+	ldr	r1,[r0,#PWR_CR3_OFFSET]
+	and	r1,r1,#PWR_CR3_SUPPLY_MASK
+	cmp	r1,#PWR_CR3_LDO
+	bne	.Lpower_configuration_failed
+
+.Lwait_for_active_voltage:
+	// Wait without a timeout, since reporting an error needs valid RAM
+	ldr	r1,[r0,#PWR_CSR1_OFFSET]
+	tst	r1,#PWR_CSR1_ACTVOSRDY
+	beq	.Lwait_for_active_voltage
+	bx	lr
+
+.Lpower_configuration_failed:
+	b	.Lpower_configuration_failed
+	.endfunc
