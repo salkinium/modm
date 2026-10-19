@@ -1,6 +1,4 @@
 {
-    // See https://code.visualstudio.com/docs/editor/tasks
-    // for the documentation about the tasks.json format
     "version": "2.0.0",
     "tasks": [
 %% for config in configs
@@ -26,7 +24,7 @@
                 "reveal": "silent",
                 "showReuseMessage": false
             }
-        },
+        }{{ "," if not loop.last }}
 %% endfor
     ]
 }
