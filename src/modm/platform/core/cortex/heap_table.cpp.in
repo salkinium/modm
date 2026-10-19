@@ -75,6 +75,10 @@ HeapTable::Iterator&
 HeapTable::Iterator::operator++()
 {
 	table++;
+%% if with_fault_storage
+	// Only the heap containing the fault report starts after it
+	offset = 0;
+%% endif
 	return *this;
 }
 
