@@ -90,6 +90,7 @@ def prepare(module, options):
         ":architecture:accessor",
         ":architecture:atomic",
         ":architecture:clock",
+        ":architecture:delay",
         ":architecture:i2c",
         ":architecture:interrupt",
         ":cmsis:device",
@@ -109,5 +110,8 @@ def build(env):
     env.outbasepath = "modm/src/modm/platform/i2c"
 
     env.copy("i2c_timing_calculator.hpp")
+    env.substitutions["extended"] = True
+    env.template("../stm32-common/i2c_master_base.hpp.in", "i2c_master_base.hpp")
+    env.template("../stm32-common/i2c_master_base.cpp.in", "i2c_master_base.cpp")
     if len(global_properties["shared_irqs"]) > 0:
         env.template("i2c_shared_irqs.cpp.in")
