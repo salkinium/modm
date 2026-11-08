@@ -1,6 +1,7 @@
 /*
  * Copyright (c) 2013-2018, Niklas Hauser
  * Copyright (c) 2014, Sascha Schade
+ * Copyright (c) 2026, Niklas Hauser
  *
  * This file is part of the modm project.
  *
@@ -14,6 +15,7 @@
 #define MODM_GPIO_HPP
 
 #include <stdint.h>
+#include <concepts>
 #include <modm/architecture/utils.hpp>
 
 namespace modm
@@ -181,6 +183,73 @@ public:
 	static void
 	toggle();
 #endif
+};
+
+/**
+ * A GPIO output pin that is used through an *instance*.
+ *
+ * Static GPIO classes like `GpioA0` satisfy this too, since static member
+ * functions can be called through an object. Code that stores the pin as
+ * `[[no_unique_address]] Pin pin;` and calls `pin.set()` therefore costs
+ * nothing extra with a static pin and works with runtime pins like
+ * `modm::AnyGpio` as well.
+ *
+ * @ingroup modm_architecture_gpio
+ */
+template< class P >
+concept GpioOutputPin = requires(P &pin, bool value)
+{
+	pin.setOutput();
+	pin.setOutput(value);
+	pin.set();
+	pin.set(value);
+	pin.reset();
+	pin.toggle();
+	{ pin.isSet() } -> std::convertible_to<bool>;
+};
+
+/// A GPIO input pin that is used through an instance, see `GpioOutputPin`.
+/// @ingroup modm_architecture_gpio
+template< class P >
+concept GpioInputPin = requires(P &pin)
+{
+	pin.setInput();
+	{ pin.read() } -> std::convertible_to<bool>;
+};
+
+/// A GPIO pin that is used through an instance, see `GpioOutputPin`.
+/// @ingroup modm_architecture_gpio
+template< class P >
+concept GpioIOPin = GpioOutputPin<P> and GpioInputPin<P>;
+
+/**
+ * Runtime interface of a GPIO expander, operating on pin masks.
+ *
+ * Used by `modm::AnyGpio` to access pins on external expanders. Wrap an
+ * existing expander driver with `modm::GpioExpanderAdapter` to get one.
+ * The functions block until the bus transfer is done, so they must not be
+ * called from an interrupt.
+ *
+ * @ingroup modm_architecture_gpio
+ */
+class GpioExpanderInterface
+{
+public:
+	virtual bool setOutput(uint32_t mask) = 0;
+	virtual bool setInput(uint32_t mask) = 0;
+	virtual bool set(uint32_t mask) = 0;
+	virtual bool reset(uint32_t mask) = 0;
+	virtual bool toggle(uint32_t mask) = 0;
+	/// @return the buffered output state of a single pin.
+	virtual bool isSet(uint32_t mask) = 0;
+	/// Reads the inputs from the expander.
+	/// @return the input state of a single pin, false on bus error.
+	virtual bool read(uint32_t mask) = 0;
+	/// @return the buffered direction of a single pin.
+	virtual Gpio::Direction getDirection(uint32_t mask) = 0;
+
+protected:
+	~GpioExpanderInterface() = default;
 };
 
 } // namespace modm

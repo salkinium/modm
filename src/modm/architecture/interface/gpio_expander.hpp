@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2015, 2017, Niklas Hauser
+ * Copyright (c) 2015, 2017, 2026, Niklas Hauser
  *
  * This file is part of the modm project.
  *
@@ -15,6 +15,7 @@
 #include <modm/architecture/interface/gpio.hpp>
 #include <modm/architecture/interface/register.hpp>
 #include <modm/math/utils/bit_operation.hpp>
+#include <type_traits>
 
 namespace modm
 {
@@ -470,6 +471,44 @@ public:
 	}
 };
 /// @endcond
+
+/**
+ * Implements `modm::GpioExpanderInterface` for an existing GPIO expander
+ * driver, so that its pins can be used as `modm::AnyGpio`.
+ *
+ * @code
+ * modm::Pca8574<I2cMaster1> expander;
+ * modm::GpioExpanderAdapter pins{expander};
+ * modm::AnyGpio led{pins, modm::pca8574::Pin::P3};
+ * led.setOutput(); led.set(); // I2C transfers
+ * @endcode
+ *
+ * @ingroup modm_architecture_gpio_expander
+ */
+template< class Expander >
+class GpioExpanderAdapter final : public GpioExpanderInterface
+{
+public:
+	using Pin = typename Expander::Pin;
+	using Pins = typename Expander::Pins;
+
+	constexpr GpioExpanderAdapter(Expander &expander) : expander(expander) {}
+
+	bool setOutput(uint32_t mask) override { return expander.setOutput(pins(mask)); }
+	bool setInput(uint32_t mask) override { return expander.setInput(pins(mask)); }
+	bool set(uint32_t mask) override { return expander.set(pins(mask)); }
+	bool reset(uint32_t mask) override { return expander.reset(pins(mask)); }
+	bool toggle(uint32_t mask) override { return expander.toggle(pins(mask)); }
+	bool isSet(uint32_t mask) override { return expander.isSet(pin(mask)); }
+	bool read(uint32_t mask) override { return expander.readInput() and expander.read(pin(mask)); }
+	Gpio::Direction getDirection(uint32_t mask) override { return expander.getDirection(pin(mask)); }
+
+private:
+	using PortType = std::underlying_type_t<Pin>;
+	static Pin pin(uint32_t mask) { return Pin(PortType(mask)); }
+	static Pins pins(uint32_t mask) { return Pins(PortType(mask)); }
+	Expander &expander;
+};
 
 } // modm namespace
 
