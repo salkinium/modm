@@ -65,8 +65,9 @@ public:
 	bool
 	start(I2cTransaction *transaction, ConfigurationHandler handler = nullptr);
 
-	/// Detaches the current and all queued transactions, resets the peripheral and
-	/// clears the bus if `recoverBus` is set. Must not be called from an interrupt.
+	/// Ends the transfer with a STOP after the current byte, detaches the current and all
+	/// queued transactions, resets the peripheral and clears the bus with `recoverBus`
+	/// if a device still holds it. Busy waits up to 4 ms; not from an interrupt.
 	void
 	reset();
 
@@ -99,8 +100,9 @@ public:
 	configure(uint8_t peripheralFrequencyMHz, uint8_t riseTime, uint16_t clockControl);
 %% endif
 
-	/// Clears a bus that a device holds, see I2c::resetDevices(). Called by reset().
-	void (*recoverBus)() = nullptr;
+	/// Clears a bus that a device holds, see I2c::clearBus(), `true` after a read was cut
+	/// off. Called by reset() and when the bus is still busy at a START.
+	void (*recoverBus)(bool afterRead) = nullptr;
 
 	/// Bytes per NBYTES chunk on v2 (1..255), smaller values force RELOAD. For tests only.
 	uint8_t maxChunk = 255;
@@ -147,6 +149,7 @@ private:
 	void refuse();
 	void detach(DetachCause cause);
 	void hwReset();
+	bool busBusy() const;
 %% if extended
 	uint32_t chunk();
 	void stop(State before, uint8_t flag);

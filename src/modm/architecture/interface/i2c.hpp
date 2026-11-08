@@ -129,14 +129,19 @@ struct I2c
 
 	/// The sequence of resetDevices() with `wait()` for each half clock period, so that
 	/// drivers can run it with a busy wait, for example from an interrupt.
+	/// @param	finishRead	clock all nine pulses, even while SDA is high: a device cut off
+	///			while it sends a byte releases SDA on its 1 bits only and needs the NACK
+	///			of the ninth pulse to stop (measured with a CS43L22, which does not reset on
+	///			START in the middle of a byte). Only after a read, since a device that
+	///			receives would take the pulses as a data byte.
 	template< class Scl, class Sda, class Wait >
 	static void
-	clearBus(Wait&& wait)
+	clearBus(Wait&& wait, bool finishRead = false)
 	{
 		Scl::set();
 		Sda::set();
 		wait();
-		for (uint_fast8_t ii = 0; ii < 9 and not Sda::read(); ++ii) {
+		for (uint_fast8_t ii = 0; ii < 9 and (finishRead or not Sda::read()); ++ii) {
 			Scl::reset();
 			wait();
 			Scl::set();

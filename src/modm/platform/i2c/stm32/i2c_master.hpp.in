@@ -131,7 +131,7 @@ private:
 	/// the interrupt when the bus is still busy at a START after a peripheral reset.
 	template<class... Signals>
 	static void
-	clearBus()
+	clearBus(bool afterRead)
 	{
 		using Connector = GpioConnector<Peripheral::I2c{{ id }}, Signals...>;
 		using Scl = typename Connector::template GetSignal<Gpio::Signal::Scl>;
@@ -140,7 +140,7 @@ private:
 		Scl::setOutput(Gpio::OutputType::OpenDrain);
 		Sda::setOutput(Gpio::OutputType::OpenDrain);
 		const uint32_t us = 500'000ul / uint32_t(busReset);
-		I2c::clearBus<Scl, Sda>([us] { modm::delay_us(us); });
+		I2c::clearBus<Scl, Sda>([us] { modm::delay_us(us); }, afterRead);
 		Connector::connect();
 	}
 
