@@ -17,6 +17,11 @@ namespace modm::platform
 I2cMasterCommon::Attach
 I2cMasterCommon::attach(I2cTransaction *t, ConfigurationHandler handler)
 {
+#ifdef MODM_I2C_TRANSFER_ONLY
+	(void) handler;
+	t->detaching(DetachCause::FailedToAttach);	// this build runs transfers only
+	return Attach::Refused;
+#endif
 	if (not t->attaching())
 	{
 		t->detaching(DetachCause::FailedToAttach);
@@ -58,6 +63,17 @@ I2cMasterCommon::takeNext()
 {
 	MODM_I2C_PROFILE_SCOPE(Finish);
 	if (transaction or client) return false;	// a detaching() started one already
+#ifdef MODM_I2C_TRANSFER_ONLY
+	I2cTransferBase *const x = xferHead;
+	if (not x) return false;
+	xferHead = x->queueNext;
+	if (not xferHead) xferTail = nullptr;
+	if (x->configuration and x->configuration != configuration) { configuration = x->configuration; configuration(); }
+	client = x;
+	prefetched = served = false;
+	seg = nullptr;
+	return true;
+#endif
 	const bool useTransfer = xferHead and (preferTransfer or not queueHead);
 	if (useTransfer)
 	{
@@ -89,7 +105,9 @@ I2cMasterCommon::finish(DetachCause cause)
 	active = false;
 	if (cause == DetachCause::ErrorCondition and error != Error::AddressNack)
 		recorder.freeze();
+#ifndef MODM_I2C_TRANSFER_ONLY
 	if (client)
+#endif
 	{
 		if (continueTransfer(cause)) return true;	// the same client goes on (p, polling)
 		client = nullptr;
@@ -202,7 +220,9 @@ I2cTransaction::Starting
 I2cMasterCommon::starting()
 {
 	MODM_I2C_PROFILE_SCOPE(Starting);
+#ifndef MODM_I2C_TRANSFER_ONLY
 	if (not client) { MODM_I2C_PROFILE_SCOPE(TStarting); return transaction->starting(); }
+#endif
 	if (prefetched) prefetched = false;
 	else
 	{
@@ -240,7 +260,9 @@ I2cMasterCommon::fetch(Operation op)
 {
 	MODM_I2C_PROFILE_SCOPE(Fetch);
 	index = 0;
+#ifndef MODM_I2C_TRANSFER_ONLY
 	if (client)
+#endif
 	{
 		using A = xfer::Segment::After;
 		if (op == Operation::Write and served)	// a joined write: the next buffer of the same segment chain
