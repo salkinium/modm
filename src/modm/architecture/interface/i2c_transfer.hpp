@@ -103,16 +103,19 @@ private:
 #endif
 };
 
-/// A transfer with `Slots` argument slots (the number the descriptor takes).
+/// A transfer with `Slots` argument slots (the number the descriptor takes) and room for
+/// `Prepared` segments: a descriptor without loops or callbacks that fits is interpreted when
+/// the transfer starts, in thread context, and the interrupt only copies its segments. Four
+/// cover register drivers (register write, read, STOP, ping); 0 interprets in the interrupt.
 /// @ingroup modm_architecture_i2c
-template< size_t Slots >
+template< size_t Slots, size_t Prepared = 4 >
 class I2cTransfer : public I2cTransferBase
 {
 public:
 	I2cTransfer() : I2cTransferBase(storage) {}
 
 private:
-	xfer::TransferN<Slots> storage;
+	xfer::TransferN<Slots, Prepared> storage;
 };
 
 }	// namespace modm

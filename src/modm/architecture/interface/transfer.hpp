@@ -120,6 +120,7 @@ struct Parsed
 	uint8_t dataTokens{0};
 	bool hasAsync{false};
 	bool hasLoop{false};
+	bool hasCallback{false};   // c or C: the segments cannot be prepared ahead
 };
 
 // Peripheral roles decide which tokens are allowed
@@ -195,10 +196,10 @@ constexpr Parsed parse(std::string_view s, Role role = Role::I2cController)
 			if (!anyData && !haveAddress) return fail(at, "p before any data");
 			haveAddress = false; lastWrite = false;
 			break;
-		case 'c': slot('c'); lastWrite = false; break;
+		case 'c': slot('c'); p.hasCallback = true; lastWrite = false; break;
 		case 'C':
 			if (role == Role::Uart) return fail(at, "C cannot pause a UART receive");
-			slot('C'); p.hasAsync = true; lastWrite = false;
+			slot('C'); p.hasAsync = p.hasCallback = true; lastWrite = false;
 			break;
 		case 't': { const int v = number(star); if (star) slot('t'); else if (v < 0) return fail(at, "t needs milliseconds"); break; }
 		case '[':
@@ -412,6 +413,10 @@ struct Transfer
 	uint8_t inlineBuf[16]{};
 	uint8_t slotCount{0};
 	uintptr_t* args{nullptr};
+	// segments prepared in thread context by begin() for descriptors without loops or callbacks:
+	// the interrupt then copies a struct instead of running the interpreter (TransferN<Slots, Prepared>)
+	Segment* pre{nullptr};
+	uint8_t preCapacity{0}, preCount{0}, preIndex{0};
 	volatile bool busy{false};
 
 	bool isBusy() const { return busy; }
@@ -425,11 +430,12 @@ struct Transfer
 	}
 };
 
-template<size_t N>
+template<size_t N, size_t Prepared = 0>
 struct TransferN : Transfer
 {
 	uintptr_t storage[N ? N : 1]{};
-	TransferN() { args = storage; slotCount = N; }
+	Segment prepared[Prepared ? Prepared : 1]{};
+	TransferN() { args = storage; slotCount = N; pre = prepared; preCapacity = Prepared; }
 };
 
 // ---- the interpreter ---------------------------------------------------------------------------
@@ -453,32 +459,59 @@ struct Interpreter
 			return false;
 		}
 		t.descriptor = descriptor; t.code = nullptr; t.role = role;
-		t.pc = t.arg = t.groupPc = t.groupArg = 0; t.groupLeft = 0;
-		t.inGroup = t.groupForever = false;
-		t.haveAddress = t.joinNext = t.lastWasWrite = t.pingPending = false; t.afterStop = true;
-		t.timeoutMs = 0;
+		reset(t);
 		t.busy = true;
+		if (!p.hasLoop && !p.hasCallback) prepare(t);
 		return true;
 	}
 #endif
 
 	// The same for a descriptor checked at compile time: no parse at run time, the slot count is
 	// known; with 'code' the bytecode form runs instead of the string.
-	static bool beginChecked(Transfer& t, const char* descriptor, Role role, size_t slots, const uint8_t* code = nullptr)
+	static bool beginChecked(Transfer& t, const char* descriptor, Role role, size_t slots, const uint8_t* code = nullptr, bool straight = false)
 	{
 		if (t.busy) return false;   // Refused: the running transfer's result is not touched
 		if (slots > t.slotCount) { t.result = {}; t.result.error = Error::Descriptor; t.result.done = true; return false; }
 		t.descriptor = descriptor; t.code = code; t.role = role;
 		t.result = {};
+		reset(t);
+		t.busy = true;
+		if (straight) prepare(t);
+		return true;
+	}
+	template<typename D>
+	static bool begin(Transfer& t, D d)
+	{
+		return beginChecked(t, d.c_str(), D::role, D::slots, D::code.data(), !D::parsed.hasLoop && !D::parsed.hasCallback);
+	}
+
+	static void reset(Transfer& t)
+	{
 		t.pc = t.arg = t.groupPc = t.groupArg = 0; t.groupLeft = 0;
 		t.inGroup = t.groupForever = false;
 		t.haveAddress = t.joinNext = t.lastWasWrite = t.pingPending = false; t.afterStop = true;
 		t.timeoutMs = 0;
-		t.busy = true;
-		return true;
+		t.preCount = t.preIndex = 0;
 	}
-	template<typename D>
-	static bool begin(Transfer& t, D d) { return beginChecked(t, d.c_str(), D::role, D::slots, D::code.data()); }
+
+	// Runs the interpreter now, in thread context, and keeps the segments for the interrupt. Only
+	// for descriptors without loops or callbacks (their segments depend on nothing at run time) and
+	// only when they fit; otherwise the interrupt interprets as usual.
+	static void prepare(Transfer& t)
+	{
+		if (!t.preCapacity) return;
+		uint8_t n = 0;
+		for (;;)
+		{
+			Segment seg = step(t);
+			if (seg.kind == Segment::Kind::Done) break;
+			if (n == t.preCapacity || seg.kind != Segment::Kind::Data && seg.kind != Segment::Kind::Stop) { reset(t); return; }   // does not fit: interpret in the interrupt
+			if (seg.kind == Segment::Kind::Data && !seg.read && seg.wbuf == t.inlineBuf) { reset(t); return; }   // inline bytes of the string form live in one buffer: not prepared
+			t.pre[n++] = seg;
+		}
+		t.preCount = n;
+		t.preIndex = 0;
+	}
 
 	// The next data segment for an engine that does not want to see callbacks: Callback segments are
 	// executed here, so only Data, Stop, Pause, Done and Finished come back. Finished means a callback
@@ -494,6 +527,17 @@ struct Interpreter
 	}
 
 	static Segment next(Transfer& t)
+	{
+		if (t.preCount)
+		{
+			if (t.preIndex < t.preCount) return t.pre[t.preIndex++];
+			Segment seg; seg.kind = Segment::Kind::Done; return seg;
+		}
+		return step(t);
+	}
+
+	// one step of the interpreter proper, in either form
+	static Segment step(Transfer& t)
 	{
 		if (t.code) return nextCode(t);
 #ifndef XFER_NO_STRING
@@ -554,7 +598,7 @@ struct Interpreter
 				if (t.groupForever || t.groupLeft) { if (!t.groupForever) t.groupLeft--; t.pc = t.groupPc; t.arg = t.groupArg; }
 				else { if (countIsArgument(t)) t.arg++; t.inGroup = false; }
 				break;
-			case END: default: seg.kind = Segment::Kind::Done; return seg;
+			case END: default: t.pc -= 2; seg.kind = Segment::Kind::Done; return seg;   // stay on END
 			}
 		}
 	}
@@ -834,6 +878,7 @@ private:
 #endif
 	static bool peekIsCallback(Transfer& t)
 	{
+		if (t.preCount) return false;   // prepared segments never hold callbacks
 		if (t.code) return t.code[t.pc] == bytecode::CALL || t.code[t.pc] == bytecode::PAUSE;   // the op byte comes first
 #ifndef XFER_NO_STRING
 		std::string_view s(t.descriptor);
