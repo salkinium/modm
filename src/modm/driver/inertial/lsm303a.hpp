@@ -15,13 +15,12 @@
 #include <modm/architecture/interface/register.hpp>
 #include <modm/architecture/interface/fiber.hpp>
 #include <modm/math/utils/endianness.hpp>
-#include "lis3_transport.hpp"
+#include <modm/architecture/interface/i2c_bus_device.hpp>
 
 namespace modm
 {
 
 // forward declaration for friending with lsm303a::Data
-template < class I2cMaster >
 class Lsm303a;
 
 /// @ingroup modm_driver_lsm303a
@@ -310,7 +309,6 @@ public:
 	struct modm_packed
 	Data
 	{
-		template < class Transport >
 		friend class Lsm303a;
 
 		constexpr Data()
@@ -367,17 +365,17 @@ protected:
 }; // struct lsm303a
 
 /**
- * @tparam	I2cMaster	A class conforming to the I2cMaster interface
+ * Runs on an I2cBus object, so it is compiled once for all buses; Lsm303aT<I2cMaster>
+ * keeps the template spelling of earlier versions.
  *
  * @ingroup modm_driver_lsm303a
  * @author	Niklas Hauser
  */
-template < class I2cMaster >
-class Lsm303a : public lsm303a, public Lis3TransportI2c<I2cMaster>
+class Lsm303a : public lsm303a, public modm::I2cBusDevice
 {
 public:
 	/// Constructor, requires a lsm303a::Data object.
-	constexpr Lsm303a(Data &data, uint8_t address = 0b0011001);
+	Lsm303a(I2cBus &bus, Data &data, uint8_t address = 0b0011001);
 
 	bool
 	configure(Scale scale, MeasurementRate rate = MeasurementRate::Hz100);
@@ -502,6 +500,23 @@ private:
 	// Nope!
 
 	uint8_t rawBuffer[16];
+
+	// register access: the register address with bit 7 set increments it for each byte
+	static constexpr uint8_t AddressIncrement = 0x80;
+	uint8_t command[2];
+	bool write(uint8_t reg, uint8_t value);
+	bool read(uint8_t reg, uint8_t &value) { return read(reg, &value, 1); }
+	bool read(uint8_t reg, uint8_t *buffer, uint8_t length);
+};
+
+/// The LSM303A on the bus of a static I2cMaster class (the spelling of earlier versions).
+/// @ingroup modm_driver_lsm303a
+template < class I2cMaster >
+class Lsm303aT : public Lsm303a
+{
+public:
+	Lsm303aT(Data &data, uint8_t address = 0b0011001)
+	:	Lsm303a(I2cMaster::bus(), data, address) {}
 };
 
 } // namespace modm

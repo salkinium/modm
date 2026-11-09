@@ -145,7 +145,7 @@ using Scl = GpioB6;	// I2C1_SCL [LSM303DLHC_SCL]: I2C1_SCL
 using Sda = GpioB9;	// I2C1_SDA [LSM303DLHC_SDA]: I2C1_SDA
 
 using I2cMaster = I2cMaster1;
-using Accelerometer = modm::Lsm303a< I2cMaster >;
+using Accelerometer = modm::Lsm303aT< I2cMaster >;
 /// @}
 }
 

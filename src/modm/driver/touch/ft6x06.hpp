@@ -12,13 +12,13 @@
 #ifndef MODM_FT6X06_HPP
 #define MODM_FT6X06_HPP
 
-#include <modm/architecture/interface/i2c_device.hpp>
+#include <modm/architecture/interface/i2c_bus_device.hpp>
+#include <cstring>
 
 namespace modm
 {
 
 // forward declaration for friending with ft6x06::Data
-template < class I2cMaster >
 class Ft6x06;
 
 /// @ingroup modm_driver_ft6x06
@@ -125,7 +125,6 @@ public:
 	struct modm_packed
 	Data
 	{
-		template< class I2cMaster >
 		friend class Ft6x06;
 
 		inline Gesture
@@ -161,26 +160,36 @@ public:
  * FT6x06 capacitive touch panel driver.
  *
  * The driver is reasonably simple, due to the datasheet not being very
- * descriptive.
+ * descriptive. It runs on an I2cBus object, so it is compiled once for all buses;
+ * Ft6x06T<I2cMaster> keeps the template spelling of earlier versions.
  *
  * @author	Niklas Hauser
  * @ingroup modm_driver_ft6x06
  */
-template < typename I2cMaster >
-class Ft6x06 : public ft6x06, public modm::I2cDevice< I2cMaster >
+class Ft6x06 : public ft6x06, public modm::I2cBusDevice
 {
 public:
 	/// Constructor, requires an ft6x06::Data object, sets address to default of 0x2A
-	constexpr Ft6x06(Data &data, uint8_t address=0x2A);
+	Ft6x06(I2cBus &bus, Data &data, uint8_t address=0x2A)
+	:	I2cBusDevice(bus, address), data(data) {}
 
 	bool
-	configure(InterruptMode mode, uint8_t activeRate = 60, uint8_t monitorRate = 25);
+	configure(InterruptMode mode, uint8_t activeRate = 60, uint8_t monitorRate = 25)
+	{
+		return write(Register::G_MODE, uint8_t(mode)) and
+			   write(Register::PERIOD_ACTIVE, activeRate) and
+			   write(Register::PERIOD_MONITOR, monitorRate);
+	}
 
 	/// Reads all touches and writes the result to the data object
 	bool
-	readTouches();
+	readTouches()
+	{
+		if (not read(Register::GEST_ID, buffer, 14)) return false;
+		std::memcpy(data.data, buffer, 14);
+		return true;
+	}
 
-public:
 	/// Get the data object for this sensor.
 	inline Data&
 	getData()
@@ -188,25 +197,44 @@ public:
 
 protected:
 	/// @cond
-	/// write a 8bit value a register
+	/// write a 8bit value to a register: register address and value in one write
 	bool
-	write(Register reg, uint8_t value);
+	write(Register reg, uint8_t value)
+	{
+		using xfer::operator""_desc;
+		command[0] = uint8_t(reg); command[1] = value;
+		return run([&]{ return bus.transfer(xfer, "i w2"_desc, address, command); });
+	}
 
-	/// read multiple 8bit values from a start register
+	/// read multiple 8bit values from a start register: register address, repeated START, read
 	bool
-	read(Register reg, uint8_t *buffer, uint8_t length);
+	read(Register reg, uint8_t *buffer, uint8_t length)
+	{
+		using xfer::operator""_desc;
+		command[0] = uint8_t(reg);
+		return run([&]{ return bus.transfer(xfer, "i w1 r*"_desc, address, command, buffer, size_t(length)); });
+	}
 	/// @endcond
 
 protected:
 	/// @cond
 	Data &data;
+	uint8_t command[2];
 	// the read buffer is for a continous read from address 0x01 -> 0x0E
 	uint8_t buffer[14];
 	/// @endcond
 };
 
-}	// namespace modm
+/// The FT6x06 on the bus of a static I2cMaster class (the spelling of earlier versions).
+/// @ingroup modm_driver_ft6x06
+template < class I2cMaster >
+class Ft6x06T : public Ft6x06
+{
+public:
+	Ft6x06T(Data &data, uint8_t address=0x2A)
+	:	Ft6x06(I2cMaster::bus(), data, address) {}
+};
 
-#include "ft6x06_impl.hpp"
+}	// namespace modm
 
 #endif // MODM_FT6X06_HPP

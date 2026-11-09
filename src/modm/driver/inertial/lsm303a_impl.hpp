@@ -15,17 +15,32 @@
 
 #include <cstring>
 
+// MARK: register access
+inline bool
+modm::Lsm303a::write(uint8_t reg, uint8_t value)
+{
+	using xfer::operator""_desc;
+	command[0] = reg; command[1] = value;
+	return run([&]{ return bus.transfer(xfer, "i w2"_desc, address, command); });
+}
+
+inline bool
+modm::Lsm303a::read(uint8_t reg, uint8_t *buffer, uint8_t length)
+{
+	using xfer::operator""_desc;
+	command[0] = reg;
+	return run([&]{ return bus.transfer(xfer, "i w1 r*"_desc, address, command, buffer, size_t(length)); });
+}
+
 // ----------------------------------------------------------------------------
 // MARK: LIS302 DRIVER
-template < class I2cMaster >
-constexpr modm::Lsm303a<I2cMaster>::Lsm303a(Data &data, uint8_t address)
-:	Lis3TransportI2c<I2cMaster>(address), data(data), rawBuffer{7,0,0,0,0,0, 0,0, 0,0,0,0,0,0, 0,0}
+inline modm::Lsm303a::Lsm303a(I2cBus &bus, Data &data, uint8_t address)
+:	I2cBusDevice(bus, address), data(data), rawBuffer{7,0,0,0,0,0, 0,0, 0,0,0,0,0,0, 0,0}
 {
 }
 
-template < class I2cMaster >
-bool
-modm::Lsm303a<I2cMaster>::configure(Scale scale, MeasurementRate rate)
+inline bool
+modm::Lsm303a::configure(Scale scale, MeasurementRate rate)
 {
 	// MeasurementRate must be set in Control1
 	rawBuffer[0] = i(rate) | 0x07;
@@ -44,9 +59,8 @@ modm::Lsm303a<I2cMaster>::configure(Scale scale, MeasurementRate rate)
 	return false;
 }
 
-template < class I2cMaster >
-bool
-modm::Lsm303a<I2cMaster>::updateControlRegister(uint8_t index, Control_t setMask, Control_t clearMask)
+inline bool
+modm::Lsm303a::updateControlRegister(uint8_t index, Control_t setMask, Control_t clearMask)
 {
 	rawBuffer[index] = (rawBuffer[index] & ~clearMask.value) | setMask.value;
 	// update the scale in the data object, if we update CTRL_REG4 (index 3)
@@ -62,9 +76,8 @@ modm::Lsm303a<I2cMaster>::updateControlRegister(uint8_t index, Control_t setMask
 	return this->write(0x20 + index, rawBuffer[index]);
 }
 
-template < class I2cMaster >
-bool
-modm::Lsm303a<I2cMaster>::readAcceleration()
+inline bool
+modm::Lsm303a::readAcceleration()
 {
 	if (this->read(i(Register::STATUS) | 0x80, rawBuffer + 7, 9))
 	{
@@ -77,9 +90,8 @@ modm::Lsm303a<I2cMaster>::readAcceleration()
 }
 
 // ----------------------------------------------------------------------------
-template < class I2cMaster >
-bool
-modm::Lsm303a<I2cMaster>::updateRegister(uint8_t reg, uint8_t setMask, uint8_t clearMask)
+inline bool
+modm::Lsm303a::updateRegister(uint8_t reg, uint8_t setMask, uint8_t clearMask)
 {
 	if (this->read(reg, rawBuffer[8]))
 	{

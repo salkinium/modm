@@ -175,7 +175,7 @@ using Int = GpioInputJ5;
 using Scl = GpioB8;
 using Sda = GpioB9;
 using I2cMaster = I2cMaster1;
-using Touch = modm::Ft6x06< I2cMaster >;
+using Touch = modm::Ft6x06T< I2cMaster >;
 constexpr uint8_t TouchAddress = {{touch_address}};
 constexpr uint8_t TouchAddress2 = {{touch_address2}};
 /// @}

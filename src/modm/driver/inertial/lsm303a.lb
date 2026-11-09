@@ -30,7 +30,7 @@ package, this class only implements the acceleration sensor.
 def prepare(module, options):
     module.depends(
         ":architecture:register",
-        ":driver:lis3.transport",
+        ":architecture:i2c.device",
         ":math:utils")
     return True
 

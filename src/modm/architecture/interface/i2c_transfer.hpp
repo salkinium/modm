@@ -56,15 +56,17 @@ public:
 	{ return t.result; }
 
 	/// The transfer has ended (successfully or not) and the object can be reused.
+	/// Reads the interpreter's volatile busy flag: Result::done is a plain bool that the
+	/// interrupt sets, a loop over it would be optimized into a single read.
 	bool
 	isDone() const
-	{ return t.result.done; }
+	{ return not t.busy; }
 
 	/// Waits in a fiber until the transfer has ended.
 	const Result&
 	wait() const
 	{
-		modm::this_fiber::poll([this] { return t.result.done; });
+		modm::this_fiber::poll([this] { return isDone(); });
 		return t.result;
 	}
 

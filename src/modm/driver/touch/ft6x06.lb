@@ -22,4 +22,3 @@ def prepare(module, options):
 def build(env):
     env.outbasepath = "modm/src/modm/driver/touch"
     env.copy("ft6x06.hpp")
-    env.copy("ft6x06_impl.hpp")
