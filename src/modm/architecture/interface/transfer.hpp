@@ -241,9 +241,13 @@ constexpr Parsed parse(std::string_view s, Role role = Role::I2cController)
 // The compile-time form of a descriptor: two bytes per token (the opcode and the token's character
 // position in the string, so Result::pos means the same in both forms), inline data as bytes, no
 // parse at run time (lang/study/README.md has the size comparison).
-//   ADDR p a | ADDRARG p | INLINE p n b.. | WRITE p n | WRITEARG p | READ p n | READARG p | JOIN p |
-//   STOP p | CALL p | PAUSE p | TIMEOUT p lo hi | TIMEOUTARG p | LOOP p lo hi (0: argument,
-//   0xffff: forever) | END_LOOP p | END p
+// Data ops also carry what follows them (Segment::After, once for a group pass that ends and once
+// for one that repeats), and LOOP the argument slots of its body, so the VM never scans ahead in
+// the interrupt.
+//   ADDR p a | ADDRARG p | INLINE p f n b.. | WRITE p f n | WRITEARG p f | READ p f n | READARG p f |
+//   JOIN p | STOP p | CALL p | PAUSE p | TIMEOUT p lo hi | TIMEOUTARG p |
+//   LOOP p lo hi slots (count 0: argument, 0xffff: forever) | END_LOOP p | END p
+//   f = after (2 bits) | after when the group repeats (2 bits) << 2
 namespace bytecode
 {
 enum Op : uint8_t { ADDR, ADDRARG, INLINE, WRITE, WRITEARG, READ, READARG, JOIN, STOP, CALL, PAUSE, TIMEOUT, TIMEOUTARG, LOOP, END_LOOP, END };
@@ -260,11 +264,40 @@ constexpr size_t skipOp(const uint8_t* code, size_t i)
 {
 	switch (code[i])
 	{
-	case ADDR: case WRITE: case READ: return i + 3;
-	case INLINE: return i + 3 + code[i + 2];
-	case TIMEOUT: case LOOP: return i + 4;
-	default: return i + 2;   // ADDRARG WRITEARG READARG JOIN STOP CALL PAUSE TIMEOUTARG END_LOOP END
+	case ADDR: case WRITEARG: case READARG: return i + 3;
+	case WRITE: case READ: case TIMEOUT: return i + 4;
+	case INLINE: return i + 4 + code[i + 3];
+	case LOOP: return i + 5;
+	default: return i + 2;   // ADDRARG JOIN STOP CALL PAUSE TIMEOUTARG END_LOOP END
 	}
+}
+
+constexpr bool isData(uint8_t op) { return op == INLINE || op == WRITE || op == WRITEARG || op == READ || op == READARG; }
+
+// Segment::After values, duplicated here as plain numbers so the compiler has no dependency on the Segment type
+enum AfterCode : uint8_t { A_STOP = 0, A_RESTART = 1, A_JOIN = 2, A_HOLD = 3 };
+
+// what follows the data op at i: the token after it decides (a joined write, another data token,
+// a callback, the end or p); at END_LOOP with 'repeat' the group's first token is next
+constexpr uint8_t afterOf(const uint8_t* code, size_t i, size_t bodyStart, bool repeat)
+{
+	bool join = false;
+	size_t j = skipOp(code, i);
+	for (int guard = 0; guard < 2; )
+	{
+		switch (code[j])
+		{
+		case JOIN: join = true; break;
+		case INLINE: case WRITE: case WRITEARG: return join ? A_JOIN : A_RESTART;
+		case READ: case READARG: case ADDR: case ADDRARG: return A_RESTART;
+		case CALL: case PAUSE: return A_HOLD;
+		case STOP: case END: return A_STOP;
+		case END_LOOP: if (repeat && bodyStart) { j = bodyStart; join = false; guard++; continue; } break;
+		default: break;
+		}
+		j = skipOp(code, j);
+	}
+	return A_RESTART;
 }
 
 constexpr Code compile(std::string_view s)
@@ -274,6 +307,7 @@ constexpr Code compile(std::string_view s)
 	int loopAt = -1;   // where the current group's LOOP header is (groups do not nest)
 	auto put = [&](int b) { if (c.size < sizeof(c.bytes)) c.bytes[c.size++] = uint8_t(b); else c.ok = false; };
 	auto op = [&](int o) { put(o); put(int(at)); };   // every op carries its character position
+	auto data = [&](int o) { op(o); put(0); };         // data ops: the 'after' byte, filled in below
 	size_t i = 0;
 	while (i < s.size())
 	{
@@ -293,7 +327,7 @@ constexpr Code compile(std::string_view s)
 		case 'I': op(ADDR); put(number(star)); break;
 		case 'i': op(ADDRARG); break;
 		case 'W': {
-			op(INLINE); const size_t lenAt = c.size; put(0);
+			data(INLINE); const size_t lenAt = c.size; put(0);
 			int n = 0;
 			while (i + 1 < s.size() && hexValue(s[i]) >= 0 && hexValue(s[i + 1]) >= 0) { put(hexValue(s[i]) << 4 | hexValue(s[i + 1])); i += 2; n++; }
 			c.bytes[lenAt] = uint8_t(n);
@@ -301,8 +335,8 @@ constexpr Code compile(std::string_view s)
 		}
 		case 'w': case 'r': {
 			const int v = number(star);
-			if (star) op(ch == 'w' ? WRITEARG : READARG);
-			else { op(ch == 'w' ? WRITE : READ); put(v); }
+			if (star) data(ch == 'w' ? WRITEARG : READARG);
+			else { data(ch == 'w' ? WRITE : READ); put(v); }
 			break;
 		}
 		case 'x': { bool st; number(st); c.ok = false; break; }   // SPI exchange: not in the bytecode form yet
@@ -311,11 +345,23 @@ constexpr Code compile(std::string_view s)
 		case 'c': op(CALL); break;
 		case 'C': op(PAUSE); break;
 		case 't': { const int v = number(star); if (star) op(TIMEOUTARG); else { op(TIMEOUT); put(v & 0xff); put(v >> 8); } break; }
-		case '[': loopAt = c.size; op(LOOP); put(0); put(0); break;   // the count is patched at the ]
+		case '[': loopAt = c.size; op(LOOP); put(0); put(0); put(0); break;   // count and slots are patched at the ]
 		case ']': {
 			const int v = number(star);
 			const int count = star ? 0 : (v == 0 ? 0xffff : v);
-			if (loopAt >= 0) { c.bytes[loopAt + 2] = uint8_t(count & 0xff); c.bytes[loopAt + 3] = uint8_t(count >> 8); }   // never search the bytes: inline data may hold an opcode value
+			if (loopAt >= 0)
+			{   // never search the bytes for the header: inline data may hold an opcode value
+				c.bytes[loopAt + 2] = uint8_t(count & 0xff); c.bytes[loopAt + 3] = uint8_t(count >> 8);
+				uint8_t slots = 0;   // argument slots of the body
+				for (size_t j = loopAt + 5; j < c.size; j = skipOp(c.bytes, j))
+					switch (c.bytes[j])
+					{
+					case ADDRARG: case CALL: case PAUSE: case TIMEOUTARG: case WRITE: case READ: slots++; break;
+					case WRITEARG: case READARG: slots += 2; break;
+					default: break;
+					}
+				c.bytes[loopAt + 4] = slots;
+			}
 			loopAt = -1;
 			op(END_LOOP);
 			break;
@@ -326,6 +372,15 @@ constexpr Code compile(std::string_view s)
 	}
 	at = s.size();
 	op(END);
+	if (!c.ok) return c;
+	// the 'after' of every data op, for a group pass that ends and for one that repeats
+	size_t body = 0;
+	for (size_t j = 0; j < c.size; j = skipOp(c.bytes, j))
+	{
+		if (c.bytes[j] == LOOP) body = j + 5;
+		else if (c.bytes[j] == END_LOOP) body = 0;
+		else if (isData(c.bytes[j])) c.bytes[j + 2] = uint8_t(afterOf(c.bytes, j, body, false) | afterOf(c.bytes, j, body, true) << 2);
+	}
 	return c;
 }
 }  // namespace bytecode
@@ -465,17 +520,21 @@ struct Interpreter
 			{
 			case ADDR: t.address = code[t.pc++]; t.pingPending = true; t.addressPos = at; break;
 			case ADDRARG: t.address = uint8_t(t.args[t.arg++] & 0x7f); t.pingPending = true; t.addressPos = at; break;
-			case INLINE:
+			case INLINE: {
 				seg.kind = Segment::Kind::Data; seg.pos = at; seg.addressPos = t.addressPos; seg.address = t.address;
-				seg.start = !t.joinNext; seg.timeoutMs = t.timeoutMs; seg.length = code[t.pc++];
+				seg.start = !t.joinNext; seg.timeoutMs = t.timeoutMs;
+				seg.after = afterFrom(t, code[t.pc++]);
+				seg.length = code[t.pc++];
 				seg.wbuf = code + t.pc; t.pc += seg.length;
-				t.joinNext = false; t.pingPending = false; seg.after = lookaheadCode(t); return seg;
+				t.joinNext = false; t.pingPending = false; return seg;
+			}
 			case WRITE: case READ: case WRITEARG: case READARG:
 				seg.kind = Segment::Kind::Data; seg.pos = at; seg.addressPos = t.addressPos; seg.address = t.address;
 				seg.read = (op == READ || op == READARG); seg.start = !t.joinNext; seg.timeoutMs = t.timeoutMs;
+				seg.after = afterFrom(t, code[t.pc++]);
 				if (seg.read) seg.rbuf = reinterpret_cast<uint8_t*>(t.args[t.arg++]); else seg.wbuf = reinterpret_cast<const uint8_t*>(t.args[t.arg++]);
 				seg.length = (op == WRITE || op == READ) ? code[t.pc++] : uint16_t(t.args[t.arg++]);
-				t.joinNext = false; t.pingPending = false; seg.after = lookaheadCode(t); return seg;
+				t.joinNext = false; t.pingPending = false; return seg;
 			case JOIN: t.joinNext = true; break;
 			case STOP: seg.kind = Segment::Kind::Stop; seg.pos = at; return seg;
 			case CALL: seg.kind = Segment::Kind::Callback; seg.pos = at; seg.callback = reinterpret_cast<Callback>(t.args[t.arg++]); return seg;
@@ -483,60 +542,30 @@ struct Interpreter
 			case TIMEOUT: t.timeoutMs = uint16_t(code[t.pc] | code[t.pc + 1] << 8); t.pc += 2; break;
 			case TIMEOUTARG: t.timeoutMs = uint16_t(t.args[t.arg++]); break;
 			case LOOP: {
-				const uint16_t count = uint16_t(code[t.pc] | code[t.pc + 1] << 8); t.pc += 2;
+				const uint16_t count = uint16_t(code[t.pc] | code[t.pc + 1] << 8);
+				const uint8_t slots = code[t.pc + 2]; t.pc += 3;
 				t.inGroup = true; t.groupPc = t.pc; t.groupArg = t.arg;
-				const uint16_t n = count ? count : uint16_t(t.args[t.arg + slotsToLoopEnd(t)]);
+				const uint16_t n = count ? count : uint16_t(t.args[t.arg + slots]);   // the count argument follows the body's
 				t.groupForever = (count == 0xffff) || (count == 0 && n == 0);
 				t.groupLeft = t.groupForever ? 0 : uint16_t(n - 1);
 				break;
 			}
 			case END_LOOP:
 				if (t.groupForever || t.groupLeft) { if (!t.groupForever) t.groupLeft--; t.pc = t.groupPc; t.arg = t.groupArg; }
-				else { if (code[t.groupPc - 2] == 0 && code[t.groupPc - 1] == 0) t.arg++; t.inGroup = false; }   // the count argument of ]*
+				else { if (countIsArgument(t)) t.arg++; t.inGroup = false; }
 				break;
 			case END: default: seg.kind = Segment::Kind::Done; return seg;
 			}
 		}
 	}
 
-	static Segment::After lookaheadCode(const Transfer& t)
+	// the data op's precomputed 'after': the half for a group pass that repeats when this one does
+	static Segment::After afterFrom(const Transfer& t, uint8_t f)
 	{
-		using namespace bytecode;
-		const uint8_t* code = t.code;
-		size_t i = t.pc; bool j = false;
-		for (;;)
-		{
-			const uint8_t op = code[i];
-			switch (op)
-			{
-			case JOIN: j = true; break;
-			case INLINE: case WRITE: case WRITEARG: return j ? Segment::After::Join : Segment::After::Restart;
-			case READ: case READARG: case ADDR: case ADDRARG: return Segment::After::Restart;
-			case CALL: case PAUSE: return Segment::After::Hold;
-			case STOP: case END: return Segment::After::Stop;
-			case END_LOOP: if (t.groupForever || t.groupLeft) { i = t.groupPc; continue; } break;
-			default: break;
-			}
-			i = skipOp(code, i);
-		}
+		const bool repeats = t.inGroup && (t.groupForever || t.groupLeft);
+		return Segment::After((f >> (repeats ? 2 : 0)) & 3);
 	}
-
-	static uint8_t slotsToLoopEnd(const Transfer& t)
-	{
-		using namespace bytecode;
-		const uint8_t* code = t.code;
-		uint8_t n = 0;
-		for (size_t i = t.pc; code[i] != END_LOOP && code[i] != END; i = skipOp(code, i))
-		{
-			switch (code[i])
-			{
-			case ADDRARG: case CALL: case PAUSE: case TIMEOUTARG: case WRITE: case READ: n++; break;
-			case WRITEARG: case READARG: n += 2; break;
-			default: break;
-			}
-		}
-		return n;
-	}
+	static bool countIsArgument(const Transfer& t) { return t.code[t.groupPc - 3] == 0 && t.code[t.groupPc - 2] == 0; }
 
 #ifndef XFER_NO_STRING
 	// ---- the string form
@@ -698,11 +727,11 @@ struct Interpreter
 	static void skipToLoopEnd(Transfer& t)
 	{
 		using namespace bytecode;
-		t.arg += slotsToLoopEnd(t);
 		const uint8_t* code = t.code;
+		t.arg = uint8_t(t.groupArg + code[t.groupPc - 1]);   // the body's slots, all consumed or skipped
 		size_t i = t.pc;
 		while (code[i] != END_LOOP && code[i] != END) i = skipOp(code, i);
-		if (code[i] == END_LOOP) { i = skipOp(code, i); if (code[t.groupPc - 2] == 0 && code[t.groupPc - 1] == 0) t.arg++; }
+		if (code[i] == END_LOOP) { i = skipOp(code, i); if (countIsArgument(t)) t.arg++; }
 		t.pc = uint8_t(i);
 	}
 
