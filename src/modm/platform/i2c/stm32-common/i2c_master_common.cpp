@@ -157,20 +157,13 @@ I2cMasterCommon::detachAll()
 
 // the next data segment, running the callbacks before it; false: the client has ended,
 // or a STOP comes first (p after a callback that held the bus)
-bool
-I2cMasterCommon::nextData(bool busHeld)
+// the rest of nextData(): a segment other than data, and the interpreter after a STOP
+[[gnu::noinline]] bool
+I2cMasterCommon::nextOther(const xfer::Segment *s, bool busHeld)
 {
-	MODM_I2C_PROFILE_SCOPE(NextGlue);
 	xfer::Transfer &t = client->t;
-	// a prepared data segment: no interpreter call
-	if (t.preIndex < t.preCount and t.pre[t.preIndex].kind == xfer::Segment::Kind::Data)
-	{
-		seg = &t.pre[t.preIndex++]; served = false;
-		return true;
-	}
 	for (;;)
 	{
-		const xfer::Segment *s = [&] { MODM_I2C_PROFILE_SCOPE(NextData); return xfer::Interpreter::nextData(t, scratch); }();	// runs the callbacks itself
 		switch (s->kind)
 		{
 			case xfer::Segment::Kind::Data:
@@ -191,7 +184,18 @@ I2cMasterCommon::nextData(bool busHeld)
 			}
 				return false;
 		}
+		s = [&] { MODM_I2C_PROFILE_SCOPE(NextData); return xfer::Interpreter::nextData(t, scratch); }();
 	}
+}
+
+// the next data segment (callbacks run in the interpreter); a prepared one is taken inline
+[[gnu::always_inline]] inline bool
+I2cMasterCommon::nextData(bool busHeld)
+{
+	MODM_I2C_PROFILE_SCOPE(NextGlue);
+	const xfer::Segment *s = [&] { MODM_I2C_PROFILE_SCOPE(NextData); return xfer::Interpreter::nextData(client->t, scratch); }();
+	if (s->kind == xfer::Segment::Kind::Data) [[likely]] { seg = s; served = false; return true; }
+	return nextOther(s, busHeld);
 }
 
 // the segment handed to the state machine ended without an error (the last one finishes the transfer)
@@ -200,9 +204,8 @@ I2cMasterCommon::doneData()
 {
 	if (not served) return;
 	served = false;
-	// without an error only the last segment does more than count its bytes
-	if (seg->last) { MODM_I2C_PROFILE_SCOPE(DataDone); xfer::Interpreter::dataDone(client->t, *seg, xfer::Error::None, 0); }
-	else client->t.result.count += seg->length;
+	MODM_I2C_PROFILE_SCOPE(DataDone);
+	xfer::Interpreter::dataDone(client->t, *seg, xfer::Error::None, 0);
 }
 
 // the state machine ended the client's attach: report, and go on if the client has more
@@ -218,13 +221,9 @@ I2cMasterCommon::continueTransfer(DetachCause cause)
 		if (served)	// doneData(), inlined
 		{
 			served = false;
-			if (seg->last)	// the usual end: finishes the transfer, nothing follows
-			{
-				MODM_I2C_PROFILE_SCOPE(DataDone);
-				xfer::Interpreter::dataDone(t, *seg, xfer::Error::None, 0);
-				return prefetched = false;
-			}
-			t.result.count += seg->length;
+			MODM_I2C_PROFILE_SCOPE(DataDone);
+			xfer::Interpreter::dataDone(t, *seg, xfer::Error::None, 0);	// the last one finishes the transfer
+			if (seg->last) return prefetched = false;
 		}
 		more = not t.result.done and nextData(false);	// after p: the next segment starts with a fresh START
 	}
@@ -249,16 +248,13 @@ I2cMasterCommon::starting()
 	else
 	{
 		xfer::Transfer &t = client->t;
-		if (served)	// doneData(), inlined: without an error only the last segment does more than count
+		if (served)	// doneData(), inlined (the core's good case is inline too)
 		{
 			served = false;
-			if (seg->last) { MODM_I2C_PROFILE_SCOPE(DataDone); xfer::Interpreter::dataDone(t, *seg, xfer::Error::None, 0); }
-			else t.result.count += seg->length;
+			MODM_I2C_PROFILE_SCOPE(DataDone);
+			xfer::Interpreter::dataDone(t, *seg, xfer::Error::None, 0);
 		}
-		if (t.result.done) return I2cTransaction::Starting(0, OperationAfterStart::End);
-		if (t.preIndex < t.preCount and t.pre[t.preIndex].kind == xfer::Segment::Kind::Data)
-			seg = &t.pre[t.preIndex++];	// nextData(), inlined for a prepared data segment
-		else if (not nextData(true))
+		if (t.result.done or not nextData(true))
 			return I2cTransaction::Starting(0, OperationAfterStart::End);
 	}
 	const xfer::Segment &s = *seg;

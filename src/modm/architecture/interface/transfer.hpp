@@ -534,22 +534,29 @@ struct Interpreter
 	// ended the transfer (the completion has run): the engine releases the bus and calls nothing else.
 	// The same without copies: a pointer into the prepared segments, or to 'scratch' (the engine's)
 	// when the interpreter runs. Valid until the next call.
-	static const Segment* nextData(Transfer& t, Segment& scratch)
+	// The prepared case is inlined into the engine (an index and a pointer); everything else is a call.
+	[[gnu::always_inline]] static const Segment* nextData(Transfer& t, Segment& scratch)
+	{
+		if (t.preIndex < t.preCount) [[likely]] return &t.pre[t.preIndex++];
+		return interpretData(t, scratch);
+	}
+	[[gnu::always_inline]] static const Segment* next(Transfer& t, Segment& scratch)
+	{
+		if (t.preIndex < t.preCount) [[likely]] return &t.pre[t.preIndex++];
+		return interpret(t, scratch);
+	}
+	[[gnu::noinline]] static const Segment* interpretData(Transfer& t, Segment& scratch)
 	{
 		for (;;)
 		{
-			const Segment* seg = next(t, scratch);
+			const Segment* seg = interpret(t, scratch);
 			if (seg->kind != Segment::Kind::Callback) return seg;
 			if (!act(t, seg->callback(t))) { scratch.kind = Segment::Kind::Finished; return &scratch; }   // callbacks are never prepared: seg is scratch
 		}
 	}
-	static const Segment* next(Transfer& t, Segment& scratch)
+	static const Segment* interpret(Transfer& t, Segment& scratch)
 	{
-		if (t.preCount)
-		{
-			if (t.preIndex < t.preCount) return &t.pre[t.preIndex++];
-			scratch = Segment{}; return &scratch;   // Done
-		}
+		if (t.preCount) { scratch = Segment{}; return &scratch; }   // the prepared segments are used up: Done
 		scratch = step(t);
 		return &scratch;
 	}
@@ -629,13 +636,18 @@ struct Interpreter
 
 	// The engine reports a finished data segment (ok, or with the error at byte 'index').
 	// Returns true when the transfer goes on (the engine then calls next()).
-	static bool dataDone(Transfer& t, const Segment& seg, Error error, uint16_t index)
+	// The good case is inlined into the engine (an add, and a call only after the last segment).
+	[[gnu::always_inline]] static bool dataDone(Transfer& t, const Segment& seg, Error error, uint16_t index)
 	{
-		if (error == Error::None)
+		if (error == Error::None) [[likely]]
 		{
 			t.result.count += seg.length;
 			return seg.last ? finish(t) : true;
 		}
+		return dataFailed(t, seg, error, index);
+	}
+	[[gnu::noinline]] static bool dataFailed(Transfer& t, const Segment& seg, Error error, uint16_t index)
+	{
 		t.result.count += index;
 		t.result.error = error; t.result.pos = (error == Error::AddressNack) ? seg.addressPos : seg.pos; t.result.index = index;
 		// an address NACK inside a group may be polled by a callback: the next token decides

@@ -208,6 +208,7 @@ protected:
 
 	// a transfer's segments: the interpreter runs in the driver
 	bool nextData(bool busHeld);
+	bool nextOther(const xfer::Segment *segment, bool busHeld);
 	void doneData();
 	bool continueTransfer(DetachCause cause);
 	bool takeNext();
