@@ -17,6 +17,7 @@
 // a joined write, or undecided because a callback comes first), a callback to run, a pause, or
 // the end. The engine reports how each data segment ended; the interpreter keeps the Result.
 #pragma once
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <string_view>
@@ -236,12 +237,92 @@ constexpr Parsed parse(std::string_view s, Role role = Role::I2cController)
 	return p;
 }
 
+// ---- bytecode ----------------------------------------------------------------------------------
+// The compile-time form of a descriptor: one byte per token, inline data as bytes, no parse at run
+// time (lang/study/README.md has the size comparison). Positions in a Result are code offsets for
+// this form; Descriptor::sourcePos maps them back to the string.
+//   ADDR a | ADDRARG | INLINE n b.. | WRITE n | WRITEARG | READ n | READARG | JOIN | STOP | CALL |
+//   PAUSE | TIMEOUT lo hi | TIMEOUTARG | LOOP lo hi (0: argument, 0xffff: forever) | END_LOOP | END
+namespace bytecode
+{
+enum Op : uint8_t { ADDR, ADDRARG, INLINE, WRITE, WRITEARG, READ, READARG, JOIN, STOP, CALL, PAUSE, TIMEOUT, TIMEOUTARG, LOOP, END_LOOP, END };
+
+struct Code
+{
+	uint8_t bytes[160]{};
+	uint8_t pos[160]{};      // source position of the token that emitted each byte
+	uint8_t size{0};
+	bool ok{true};
+};
+
+constexpr Code compile(std::string_view s)
+{
+	Code c;
+	size_t at = 0;
+	int loopAt = -1;   // where the current group's LOOP header is (groups do not nest)
+	auto put = [&](int b) { if (c.size < sizeof(c.bytes)) { c.pos[c.size] = uint8_t(at); c.bytes[c.size++] = uint8_t(b); } else c.ok = false; };
+	size_t i = 0;
+	while (i < s.size())
+	{
+		const char ch = s[i];
+		if (isSep(ch)) { i++; continue; }
+		at = i++;
+		auto number = [&](bool& star) -> int {
+			star = false;
+			if (i < s.size() && s[i] == '*') { i++; star = true; return 0; }
+			int v = 0;
+			while (i < s.size() && hexValue(s[i]) >= 0) { v = v * 16 + hexValue(s[i]); i++; }
+			return v;
+		};
+		bool star = false;
+		switch (ch)
+		{
+		case 'I': put(ADDR); put(number(star)); break;
+		case 'i': put(ADDRARG); break;
+		case 'W': {
+			const size_t lenAt = c.size + 1; put(INLINE); put(0);
+			int n = 0;
+			while (i + 1 < s.size() && hexValue(s[i]) >= 0 && hexValue(s[i + 1]) >= 0) { put(hexValue(s[i]) << 4 | hexValue(s[i + 1])); i += 2; n++; }
+			c.bytes[lenAt] = uint8_t(n);
+			break;
+		}
+		case 'w': case 'r': {
+			const int v = number(star);
+			if (star) put(ch == 'w' ? WRITEARG : READARG);
+			else { put(ch == 'w' ? WRITE : READ); put(v); }
+			break;
+		}
+		case 'x': { bool st; number(st); c.ok = false; break; }   // SPI exchange: not in the bytecode form yet
+		case '+': put(JOIN); break;
+		case 'p': put(STOP); break;
+		case 'c': put(CALL); break;
+		case 'C': put(PAUSE); break;
+		case 't': { const int v = number(star); if (star) put(TIMEOUTARG); else { put(TIMEOUT); put(v & 0xff); put(v >> 8); } break; }
+		case '[': loopAt = c.size; put(LOOP); put(0); put(0); break;   // the count is patched at the ]
+		case ']': {
+			const int v = number(star);
+			const int count = star ? 0 : (v == 0 ? 0xffff : v);
+			if (loopAt >= 0) { c.bytes[loopAt + 1] = uint8_t(count & 0xff); c.bytes[loopAt + 2] = uint8_t(count >> 8); }   // never search the bytes: inline data may hold an opcode value
+			loopAt = -1;
+			put(END_LOOP);
+			break;
+		}
+		case 's': case 'g': break;
+		case 'A': case 'D': default: c.ok = false; i = s.size(); break;   // target and UART forms: string path only
+		}
+	}
+	put(END);
+	return c;
+}
+}  // namespace bytecode
+
 // ---- the transfer object -----------------------------------------------------------------------
 // Owned by the caller (a device driver member). The args array is sized by the template below.
 
 struct Transfer
 {
 	const char* descriptor{nullptr};
+	const uint8_t* code{nullptr};     // the bytecode form, when the descriptor was compiled at compile time
 	Transfer* next{nullptr};          // intrusive queue link
 	Completion completion{nullptr};
 	void* context{nullptr};           // for the owner
@@ -265,9 +346,12 @@ struct Transfer
 	volatile bool busy{false};
 
 	bool isBusy() const { return busy; }
+	// Waits on the volatile busy flag, which finish() clears after the result is final: a loop on
+	// result.done (a plain bool written from the interrupt) is folded into one read by the compiler.
+	// The fiber version polls the same flag (modm::this_fiber::poll).
 	const Result& wait() const
 	{
-		while (!result.done) {}  // the fiber version polls instead (modm::this_fiber::poll)
+		while (busy) {}
 		return result;
 	}
 };
@@ -286,6 +370,7 @@ struct Interpreter
 {
 	// Prepares a transfer: parses, binds the arguments (already in t.args), resets the state.
 	// Returns false with result.error = Descriptor or Refused.
+#ifndef XFER_NO_STRING
 	static bool begin(Transfer& t, const char* descriptor, Role role, size_t argsGiven)
 	{
 		if (t.busy) return false;   // Refused: the running transfer's result is not touched
@@ -298,7 +383,7 @@ struct Interpreter
 			t.result.done = true;
 			return false;
 		}
-		t.descriptor = descriptor; t.role = role;
+		t.descriptor = descriptor; t.code = nullptr; t.role = role;
 		t.pc = t.arg = t.groupPc = t.groupArg = 0; t.groupLeft = 0;
 		t.inGroup = t.groupForever = false;
 		t.haveAddress = t.joinNext = t.lastWasWrite = t.pingPending = false; t.afterStop = true;
@@ -306,13 +391,15 @@ struct Interpreter
 		t.busy = true;
 		return true;
 	}
+#endif
 
-	// The same for a descriptor checked at compile time: no parse at run time, the slot count is known.
-	static bool beginChecked(Transfer& t, const char* descriptor, Role role, size_t slots)
+	// The same for a descriptor checked at compile time: no parse at run time, the slot count is
+	// known; with 'code' the bytecode form runs instead of the string.
+	static bool beginChecked(Transfer& t, const char* descriptor, Role role, size_t slots, const uint8_t* code = nullptr)
 	{
 		if (t.busy) return false;   // Refused: the running transfer's result is not touched
 		if (slots > t.slotCount) { t.result = {}; t.result.error = Error::Descriptor; t.result.done = true; return false; }
-		t.descriptor = descriptor; t.role = role;
+		t.descriptor = descriptor; t.code = code; t.role = role;
 		t.result = {};
 		t.pc = t.arg = t.groupPc = t.groupArg = 0; t.groupLeft = 0;
 		t.inGroup = t.groupForever = false;
@@ -322,11 +409,129 @@ struct Interpreter
 		return true;
 	}
 	template<typename D>
-	static bool begin(Transfer& t, D d) { return beginChecked(t, d.c_str(), D::role, D::slots); }
+	static bool begin(Transfer& t, D d) { return beginChecked(t, d.c_str(), D::role, D::slots, D::code.data()); }
 
+	// The next data segment for an engine that runs the synchronous callbacks itself: Callback
+	// segments are executed here, so only Data, Stop, Pause and Done come back. Done with
+	// t.busy == false means a callback already finished the transfer (the completion has run).
+	static Segment nextData(Transfer& t)
+	{
+		for (;;)
+		{
+			Segment seg = next(t);
+			if (seg.kind != Segment::Kind::Callback) return seg;
+			if (!act(t, seg.callback(t))) { seg.kind = Segment::Kind::Done; return seg; }
+		}
+	}
+
+	static Segment next(Transfer& t)
+	{
+		if (t.code) return nextCode(t);
+#ifndef XFER_NO_STRING
+		return nextString(t);
+#else
+		Segment seg; seg.kind = Segment::Kind::Done; return seg;
+#endif
+	}
+
+	// ---- the bytecode form
+	static Segment nextCode(Transfer& t)
+	{
+		using namespace bytecode;
+		Segment seg;
+		const uint8_t* code = t.code;
+		for (;;)
+		{
+			const uint8_t at = t.pc;
+			const uint8_t op = code[at];
+			if (t.pingPending && op != INLINE && op != WRITE && op != WRITEARG && op != READ && op != READARG && op != TIMEOUT && op != TIMEOUTARG)
+				return ping(t, seg);
+			t.pc++;
+			switch (op)
+			{
+			case ADDR: t.address = code[t.pc++]; t.pingPending = true; t.addressPos = at; break;
+			case ADDRARG: t.address = uint8_t(t.args[t.arg++] & 0x7f); t.pingPending = true; t.addressPos = at; break;
+			case INLINE:
+				seg.kind = Segment::Kind::Data; seg.pos = at; seg.addressPos = t.addressPos; seg.address = t.address;
+				seg.start = !t.joinNext; seg.timeoutMs = t.timeoutMs; seg.length = code[t.pc++];
+				seg.wbuf = code + t.pc; t.pc += seg.length;
+				t.joinNext = false; t.pingPending = false; seg.after = lookaheadCode(t); return seg;
+			case WRITE: case READ: case WRITEARG: case READARG:
+				seg.kind = Segment::Kind::Data; seg.pos = at; seg.addressPos = t.addressPos; seg.address = t.address;
+				seg.read = (op == READ || op == READARG); seg.start = !t.joinNext; seg.timeoutMs = t.timeoutMs;
+				if (seg.read) seg.rbuf = reinterpret_cast<uint8_t*>(t.args[t.arg++]); else seg.wbuf = reinterpret_cast<const uint8_t*>(t.args[t.arg++]);
+				seg.length = (op == WRITE || op == READ) ? code[t.pc++] : uint16_t(t.args[t.arg++]);
+				t.joinNext = false; t.pingPending = false; seg.after = lookaheadCode(t); return seg;
+			case JOIN: t.joinNext = true; break;
+			case STOP: seg.kind = Segment::Kind::Stop; seg.pos = at; return seg;
+			case CALL: seg.kind = Segment::Kind::Callback; seg.pos = at; seg.callback = reinterpret_cast<Callback>(t.args[t.arg++]); return seg;
+			case PAUSE: seg.kind = Segment::Kind::Pause; seg.pos = at; seg.asyncCallback = reinterpret_cast<AsyncCallback>(t.args[t.arg++]); return seg;
+			case TIMEOUT: t.timeoutMs = uint16_t(code[t.pc] | code[t.pc + 1] << 8); t.pc += 2; break;
+			case TIMEOUTARG: t.timeoutMs = uint16_t(t.args[t.arg++]); break;
+			case LOOP: {
+				const uint16_t count = uint16_t(code[t.pc] | code[t.pc + 1] << 8); t.pc += 2;
+				t.inGroup = true; t.groupPc = t.pc; t.groupArg = t.arg;
+				const uint16_t n = count ? count : uint16_t(t.args[t.arg + slotsToLoopEnd(t)]);
+				t.groupForever = (count == 0xffff) || (count == 0 && n == 0);
+				t.groupLeft = t.groupForever ? 0 : uint16_t(n - 1);
+				break;
+			}
+			case END_LOOP:
+				if (t.groupForever || t.groupLeft) { if (!t.groupForever) t.groupLeft--; t.pc = t.groupPc; t.arg = t.groupArg; }
+				else { if (code[t.groupPc - 2] == 0 && code[t.groupPc - 1] == 0) t.arg++; t.inGroup = false; }
+				break;
+			case END: default: seg.kind = Segment::Kind::Done; return seg;
+			}
+		}
+	}
+
+	static Segment::After lookaheadCode(const Transfer& t)
+	{
+		using namespace bytecode;
+		const uint8_t* code = t.code;
+		size_t i = t.pc; bool j = false;
+		for (;;)
+		{
+			switch (code[i++])
+			{
+			case JOIN: j = true; break;
+			case INLINE: case WRITE: case WRITEARG: return j ? Segment::After::Join : Segment::After::Restart;
+			case READ: case READARG: case ADDR: case ADDRARG: return Segment::After::Restart;
+			case CALL: case PAUSE: return Segment::After::Hold;
+			case STOP: case END: return Segment::After::Stop;
+			case END_LOOP: if (t.groupForever || t.groupLeft) i = t.groupPc; break;
+			case TIMEOUT: case LOOP: i += 2; break;
+			default: break;
+			}
+		}
+	}
+
+	static uint8_t slotsToLoopEnd(const Transfer& t)
+	{
+		using namespace bytecode;
+		const uint8_t* code = t.code;
+		uint8_t n = 0;
+		for (size_t i = t.pc; code[i] != END_LOOP && code[i] != END;)
+		{
+			switch (code[i++])
+			{
+			case ADDRARG: case CALL: case PAUSE: case TIMEOUTARG: n++; break;
+			case WRITE: case READ: n++; i++; break;
+			case WRITEARG: case READARG: n += 2; break;
+			case INLINE: i += code[i] + 1; break;
+			case ADDR: i++; break;
+			case TIMEOUT: i += 2; break;
+			default: break;
+			}
+		}
+		return n;
+	}
+
+#ifndef XFER_NO_STRING
+	// ---- the string form
 	// The next step for the engine. Data segments carry 'after': what the engine does when the
 	// bytes are done (STOP, repeated START, joined write, or hold the bus and ask again).
-	static Segment next(Transfer& t)
+	static Segment nextString(Transfer& t)
 	{
 		Segment seg;
 		std::string_view s(t.descriptor);
@@ -419,6 +624,8 @@ struct Interpreter
 		}
 	}
 
+#endif  // XFER_NO_STRING
+
 	// The engine reports a finished data segment (ok, or with the error at byte 'index').
 	// Returns true when the transfer goes on (the engine then calls next()).
 	static bool dataDone(Transfer& t, const Segment& seg, Error error, uint16_t index)
@@ -448,7 +655,11 @@ struct Interpreter
 		case Action::Break:
 			t.result.error = Error::None;
 			if (!t.inGroup) return finish(t);   // outside a group the whole string is the group
-			skipToGroupEnd(t); t.inGroup = false;
+#ifndef XFER_NO_STRING
+			if (!t.code) skipToGroupEnd(t); else
+#endif
+			skipToLoopEnd(t);
+			t.inGroup = false;
 			return true;
 		case Action::Stop:
 			t.result.error = Error::None;
@@ -466,10 +677,20 @@ struct Interpreter
 	// Ends the transfer: the result is final, the completion runs, the object is free again.
 	static bool finish(Transfer& t)
 	{
+		if (!t.busy) return false;   // already finished (a callback ended the transfer)
 		t.result.done = true;
 		t.busy = false;
 		if (t.completion) t.completion(t);
 		return false;
+	}
+
+	static void skipToLoopEnd(Transfer& t)
+	{
+		using namespace bytecode;
+		t.arg += slotsToLoopEnd(t);
+		const uint8_t* code = t.code;
+		while (code[t.pc] != END_LOOP && code[t.pc] != END) t.pc++;
+		if (code[t.pc] == END_LOOP) { t.pc++; if (code[t.groupPc - 2] == 0 && code[t.groupPc - 1] == 0) t.arg++; }
 	}
 
 	static bool fail(Transfer& t, Error e, uint8_t pos = 0, uint16_t index = 0)
@@ -487,6 +708,7 @@ private:
 		t.pingPending = false;
 		return seg;
 	}
+#ifndef XFER_NO_STRING
 	static void skipSeps(Transfer& t, std::string_view s) { while (t.pc < s.size() && isSep(s[t.pc])) t.pc++; }
 	static int hexNumber(Transfer& t, std::string_view s)
 	{
@@ -567,13 +789,20 @@ private:
 		while (i < s.size() && hexValue(s[i]) >= 0) { v = v * 16 + hexValue(s[i]); i++; }
 		return uint16_t(v);
 	}
+#endif
 	static bool peekIsCallback(Transfer& t)
 	{
+		if (t.code) return t.code[t.pc] == bytecode::CALL || t.code[t.pc] == bytecode::PAUSE;
+#ifndef XFER_NO_STRING
 		std::string_view s(t.descriptor);
 		size_t i = t.pc;
 		while (i < s.size() && isSep(s[i])) i++;
 		return i < s.size() && (s[i] == 'c' || s[i] == 'C');
+#else
+		return false;
+#endif
 	}
+#ifndef XFER_NO_STRING
 	static void skipToGroupEnd(Transfer& t)
 	{
 		std::string_view s(t.descriptor);
@@ -582,6 +811,7 @@ private:
 		t.pc = uint8_t(i);
 		if (t.pc < s.size()) { t.pc++; bool star; hexNumberOrStar(t, s, star); if (star) t.arg++; }
 	}
+#endif
 };
 
 // ---- compile-time descriptors (C++) ------------------------------------------------------------
@@ -603,6 +833,17 @@ struct Descriptor
 	static_assert(parsed.ok, "bad transfer descriptor (see Parsed::message)");
 	static constexpr size_t slots = parsed.slots;
 	static constexpr Role role = R;
+	static constexpr bytecode::Code compiled = bytecode::compile(text);
+	static constexpr bool hasCode = compiled.ok;
+	// the bytecode (an empty END program when the form has no bytecode: target and UART descriptors)
+	static constexpr auto code = [] {
+		std::array<uint8_t, compiled.ok ? compiled.size : 1> a{};
+		if constexpr (compiled.ok) for (size_t i = 0; i < compiled.size; i++) a[i] = compiled.bytes[i];
+		else a[0] = bytecode::END;
+		return a;
+	}();
+	// source position of a code offset (Result::pos of the bytecode form)
+	static constexpr uint8_t sourcePos(uint8_t codeOffset) { return codeOffset < compiled.size ? compiled.pos[codeOffset] : uint8_t(text.size()); }
 	constexpr const char* c_str() const { return L.text; }
 };
 

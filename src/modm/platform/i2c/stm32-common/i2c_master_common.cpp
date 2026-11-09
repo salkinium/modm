@@ -141,7 +141,7 @@ I2cMasterCommon::nextData(bool busHeld)
 	xfer::Transfer &t = client->t;
 	for (;;)
 	{
-		const xfer::Segment s = xfer::Interpreter::next(t);
+		const xfer::Segment s = xfer::Interpreter::nextData(t);	// runs the callbacks itself
 		switch (s.kind)
 		{
 			case xfer::Segment::Kind::Data:
@@ -150,14 +150,11 @@ I2cMasterCommon::nextData(bool busHeld)
 			case xfer::Segment::Kind::Stop:		// release the bus first, the rest after a fresh START
 				if (busHeld) return false;
 				break;
-			case xfer::Segment::Kind::Callback:
-				if (not xfer::Interpreter::act(t, s.callback(t))) return false;
-				break;
 			case xfer::Segment::Kind::Pause:		// not supported
 				xfer::Interpreter::fail(t, xfer::Error::Internal, s.pos);
 				return false;
-			case xfer::Segment::Kind::Done:
-				xfer::Interpreter::finish(t);
+			default:	// Done: the end of the string, or a callback ended the transfer already
+				if (not t.result.done) xfer::Interpreter::finish(t);
 				return false;
 		}
 	}

@@ -67,9 +67,11 @@ public:
 	/// The same for a descriptor known only at run time (the C API, replays): the string is
 	/// parsed now, `args` are the pointer-sized argument slots in descriptor order. A wrong
 	/// string or count ends the transfer at once with Error::Descriptor and its position.
+#ifndef XFER_NO_STRING
 	bool
 	transfer(I2cTransferBase &xfer, const char *descriptor, const uintptr_t *args, size_t count)
 	{ return xfer.runParsed(*this, descriptor, args, count); }
+#endif
 
 protected:
 	constexpr I2cBus() = default;
@@ -89,6 +91,7 @@ I2cTransferBase::run(I2cBus &b, D descriptor, Args... args)
 	return b.start(*this);
 }
 
+#ifndef XFER_NO_STRING
 inline bool
 I2cTransferBase::runParsed(I2cBus &b, const char *descriptor, const uintptr_t *args, size_t count)
 {
@@ -102,5 +105,6 @@ I2cTransferBase::runParsed(I2cBus &b, const char *descriptor, const uintptr_t *a
 	if (not xfer::Interpreter::begin(t, descriptor, xfer::Role::I2cController, count)) return false;
 	return b.start(*this);
 }
+#endif
 
 }	// namespace modm
