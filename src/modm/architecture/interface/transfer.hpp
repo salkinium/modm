@@ -76,7 +76,7 @@ using Completion = void (*)(Transfer&);
 // one step for the engine
 struct Segment
 {
-	enum class Kind : uint8_t { Data, Callback, Pause, Stop, Done };   // Stop: release the bus (p after a hold)
+	enum class Kind : uint8_t { Data, Callback, Pause, Stop, Done, Finished };   // Stop: release the bus (p after a hold); Finished: a callback ended the transfer, only from nextData()
 	enum class After : uint8_t { Stop, Restart, Join, Hold };  // Hold: a callback decides, keep the bus
 
 	Kind kind{Kind::Done};
@@ -238,29 +238,42 @@ constexpr Parsed parse(std::string_view s, Role role = Role::I2cController)
 }
 
 // ---- bytecode ----------------------------------------------------------------------------------
-// The compile-time form of a descriptor: one byte per token, inline data as bytes, no parse at run
-// time (lang/study/README.md has the size comparison). Positions in a Result are code offsets for
-// this form; Descriptor::sourcePos maps them back to the string.
-//   ADDR a | ADDRARG | INLINE n b.. | WRITE n | WRITEARG | READ n | READARG | JOIN | STOP | CALL |
-//   PAUSE | TIMEOUT lo hi | TIMEOUTARG | LOOP lo hi (0: argument, 0xffff: forever) | END_LOOP | END
+// The compile-time form of a descriptor: two bytes per token (the opcode and the token's character
+// position in the string, so Result::pos means the same in both forms), inline data as bytes, no
+// parse at run time (lang/study/README.md has the size comparison).
+//   ADDR p a | ADDRARG p | INLINE p n b.. | WRITE p n | WRITEARG p | READ p n | READARG p | JOIN p |
+//   STOP p | CALL p | PAUSE p | TIMEOUT p lo hi | TIMEOUTARG p | LOOP p lo hi (0: argument,
+//   0xffff: forever) | END_LOOP p | END p
 namespace bytecode
 {
 enum Op : uint8_t { ADDR, ADDRARG, INLINE, WRITE, WRITEARG, READ, READARG, JOIN, STOP, CALL, PAUSE, TIMEOUT, TIMEOUTARG, LOOP, END_LOOP, END };
 
 struct Code
 {
-	uint8_t bytes[160]{};
-	uint8_t pos[160]{};      // source position of the token that emitted each byte
+	uint8_t bytes[192]{};
 	uint8_t size{0};
 	bool ok{true};
 };
+
+// the index of the op after the one at i
+constexpr size_t skipOp(const uint8_t* code, size_t i)
+{
+	switch (code[i])
+	{
+	case ADDR: case WRITE: case READ: return i + 3;
+	case INLINE: return i + 3 + code[i + 2];
+	case TIMEOUT: case LOOP: return i + 4;
+	default: return i + 2;   // ADDRARG WRITEARG READARG JOIN STOP CALL PAUSE TIMEOUTARG END_LOOP END
+	}
+}
 
 constexpr Code compile(std::string_view s)
 {
 	Code c;
 	size_t at = 0;
 	int loopAt = -1;   // where the current group's LOOP header is (groups do not nest)
-	auto put = [&](int b) { if (c.size < sizeof(c.bytes)) { c.pos[c.size] = uint8_t(at); c.bytes[c.size++] = uint8_t(b); } else c.ok = false; };
+	auto put = [&](int b) { if (c.size < sizeof(c.bytes)) c.bytes[c.size++] = uint8_t(b); else c.ok = false; };
+	auto op = [&](int o) { put(o); put(int(at)); };   // every op carries its character position
 	size_t i = 0;
 	while (i < s.size())
 	{
@@ -277,10 +290,10 @@ constexpr Code compile(std::string_view s)
 		bool star = false;
 		switch (ch)
 		{
-		case 'I': put(ADDR); put(number(star)); break;
-		case 'i': put(ADDRARG); break;
+		case 'I': op(ADDR); put(number(star)); break;
+		case 'i': op(ADDRARG); break;
 		case 'W': {
-			const size_t lenAt = c.size + 1; put(INLINE); put(0);
+			op(INLINE); const size_t lenAt = c.size; put(0);
 			int n = 0;
 			while (i + 1 < s.size() && hexValue(s[i]) >= 0 && hexValue(s[i + 1]) >= 0) { put(hexValue(s[i]) << 4 | hexValue(s[i + 1])); i += 2; n++; }
 			c.bytes[lenAt] = uint8_t(n);
@@ -288,30 +301,31 @@ constexpr Code compile(std::string_view s)
 		}
 		case 'w': case 'r': {
 			const int v = number(star);
-			if (star) put(ch == 'w' ? WRITEARG : READARG);
-			else { put(ch == 'w' ? WRITE : READ); put(v); }
+			if (star) op(ch == 'w' ? WRITEARG : READARG);
+			else { op(ch == 'w' ? WRITE : READ); put(v); }
 			break;
 		}
 		case 'x': { bool st; number(st); c.ok = false; break; }   // SPI exchange: not in the bytecode form yet
-		case '+': put(JOIN); break;
-		case 'p': put(STOP); break;
-		case 'c': put(CALL); break;
-		case 'C': put(PAUSE); break;
-		case 't': { const int v = number(star); if (star) put(TIMEOUTARG); else { put(TIMEOUT); put(v & 0xff); put(v >> 8); } break; }
-		case '[': loopAt = c.size; put(LOOP); put(0); put(0); break;   // the count is patched at the ]
+		case '+': op(JOIN); break;
+		case 'p': op(STOP); break;
+		case 'c': op(CALL); break;
+		case 'C': op(PAUSE); break;
+		case 't': { const int v = number(star); if (star) op(TIMEOUTARG); else { op(TIMEOUT); put(v & 0xff); put(v >> 8); } break; }
+		case '[': loopAt = c.size; op(LOOP); put(0); put(0); break;   // the count is patched at the ]
 		case ']': {
 			const int v = number(star);
 			const int count = star ? 0 : (v == 0 ? 0xffff : v);
-			if (loopAt >= 0) { c.bytes[loopAt + 1] = uint8_t(count & 0xff); c.bytes[loopAt + 2] = uint8_t(count >> 8); }   // never search the bytes: inline data may hold an opcode value
+			if (loopAt >= 0) { c.bytes[loopAt + 2] = uint8_t(count & 0xff); c.bytes[loopAt + 3] = uint8_t(count >> 8); }   // never search the bytes: inline data may hold an opcode value
 			loopAt = -1;
-			put(END_LOOP);
+			op(END_LOOP);
 			break;
 		}
 		case 's': case 'g': break;
 		case 'A': case 'D': default: c.ok = false; i = s.size(); break;   // target and UART forms: string path only
 		}
 	}
-	put(END);
+	at = s.size();
+	op(END);
 	return c;
 }
 }  // namespace bytecode
@@ -411,16 +425,16 @@ struct Interpreter
 	template<typename D>
 	static bool begin(Transfer& t, D d) { return beginChecked(t, d.c_str(), D::role, D::slots, D::code.data()); }
 
-	// The next data segment for an engine that runs the synchronous callbacks itself: Callback
-	// segments are executed here, so only Data, Stop, Pause and Done come back. Done with
-	// t.busy == false means a callback already finished the transfer (the completion has run).
+	// The next data segment for an engine that does not want to see callbacks: Callback segments are
+	// executed here, so only Data, Stop, Pause, Done and Finished come back. Finished means a callback
+	// ended the transfer (the completion has run): the engine releases the bus and calls nothing else.
 	static Segment nextData(Transfer& t)
 	{
 		for (;;)
 		{
 			Segment seg = next(t);
 			if (seg.kind != Segment::Kind::Callback) return seg;
-			if (!act(t, seg.callback(t))) { seg.kind = Segment::Kind::Done; return seg; }
+			if (!act(t, seg.callback(t))) { seg.kind = Segment::Kind::Finished; return seg; }
 		}
 	}
 
@@ -442,11 +456,11 @@ struct Interpreter
 		const uint8_t* code = t.code;
 		for (;;)
 		{
-			const uint8_t at = t.pc;
-			const uint8_t op = code[at];
+			const uint8_t op = code[t.pc];
+			const uint8_t at = code[t.pc + 1];   // the token's character position
 			if (t.pingPending && op != INLINE && op != WRITE && op != WRITEARG && op != READ && op != READARG && op != TIMEOUT && op != TIMEOUTARG)
 				return ping(t, seg);
-			t.pc++;
+			t.pc += 2;
 			switch (op)
 			{
 			case ADDR: t.address = code[t.pc++]; t.pingPending = true; t.addressPos = at; break;
@@ -478,7 +492,7 @@ struct Interpreter
 			}
 			case END_LOOP:
 				if (t.groupForever || t.groupLeft) { if (!t.groupForever) t.groupLeft--; t.pc = t.groupPc; t.arg = t.groupArg; }
-				else { if (code[t.groupPc - 2] == 0 && code[t.groupPc - 1] == 0) t.arg++; t.inGroup = false; }
+				else { if (code[t.groupPc - 2] == 0 && code[t.groupPc - 1] == 0) t.arg++; t.inGroup = false; }   // the count argument of ]*
 				break;
 			case END: default: seg.kind = Segment::Kind::Done; return seg;
 			}
@@ -492,17 +506,18 @@ struct Interpreter
 		size_t i = t.pc; bool j = false;
 		for (;;)
 		{
-			switch (code[i++])
+			const uint8_t op = code[i];
+			switch (op)
 			{
 			case JOIN: j = true; break;
 			case INLINE: case WRITE: case WRITEARG: return j ? Segment::After::Join : Segment::After::Restart;
 			case READ: case READARG: case ADDR: case ADDRARG: return Segment::After::Restart;
 			case CALL: case PAUSE: return Segment::After::Hold;
 			case STOP: case END: return Segment::After::Stop;
-			case END_LOOP: if (t.groupForever || t.groupLeft) i = t.groupPc; break;
-			case TIMEOUT: case LOOP: i += 2; break;
+			case END_LOOP: if (t.groupForever || t.groupLeft) { i = t.groupPc; continue; } break;
 			default: break;
 			}
+			i = skipOp(code, i);
 		}
 	}
 
@@ -511,16 +526,12 @@ struct Interpreter
 		using namespace bytecode;
 		const uint8_t* code = t.code;
 		uint8_t n = 0;
-		for (size_t i = t.pc; code[i] != END_LOOP && code[i] != END;)
+		for (size_t i = t.pc; code[i] != END_LOOP && code[i] != END; i = skipOp(code, i))
 		{
-			switch (code[i++])
+			switch (code[i])
 			{
-			case ADDRARG: case CALL: case PAUSE: case TIMEOUTARG: n++; break;
-			case WRITE: case READ: n++; i++; break;
+			case ADDRARG: case CALL: case PAUSE: case TIMEOUTARG: case WRITE: case READ: n++; break;
 			case WRITEARG: case READARG: n += 2; break;
-			case INLINE: i += code[i] + 1; break;
-			case ADDR: i++; break;
-			case TIMEOUT: i += 2; break;
 			default: break;
 			}
 		}
@@ -689,8 +700,10 @@ struct Interpreter
 		using namespace bytecode;
 		t.arg += slotsToLoopEnd(t);
 		const uint8_t* code = t.code;
-		while (code[t.pc] != END_LOOP && code[t.pc] != END) t.pc++;
-		if (code[t.pc] == END_LOOP) { t.pc++; if (code[t.groupPc - 2] == 0 && code[t.groupPc - 1] == 0) t.arg++; }
+		size_t i = t.pc;
+		while (code[i] != END_LOOP && code[i] != END) i = skipOp(code, i);
+		if (code[i] == END_LOOP) { i = skipOp(code, i); if (code[t.groupPc - 2] == 0 && code[t.groupPc - 1] == 0) t.arg++; }
+		t.pc = uint8_t(i);
 	}
 
 	static bool fail(Transfer& t, Error e, uint8_t pos = 0, uint16_t index = 0)
@@ -792,7 +805,7 @@ private:
 #endif
 	static bool peekIsCallback(Transfer& t)
 	{
-		if (t.code) return t.code[t.pc] == bytecode::CALL || t.code[t.pc] == bytecode::PAUSE;
+		if (t.code) return t.code[t.pc] == bytecode::CALL || t.code[t.pc] == bytecode::PAUSE;   // the op byte comes first
 #ifndef XFER_NO_STRING
 		std::string_view s(t.descriptor);
 		size_t i = t.pc;
@@ -842,8 +855,6 @@ struct Descriptor
 		else a[0] = bytecode::END;
 		return a;
 	}();
-	// source position of a code offset (Result::pos of the bytecode form)
-	static constexpr uint8_t sourcePos(uint8_t codeOffset) { return codeOffset < compiled.size ? compiled.pos[codeOffset] : uint8_t(text.size()); }
 	constexpr const char* c_str() const { return L.text; }
 };
 

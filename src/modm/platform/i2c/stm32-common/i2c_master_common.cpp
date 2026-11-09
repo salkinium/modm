@@ -153,8 +153,10 @@ I2cMasterCommon::nextData(bool busHeld)
 			case xfer::Segment::Kind::Pause:		// not supported
 				xfer::Interpreter::fail(t, xfer::Error::Internal, s.pos);
 				return false;
-			default:	// Done: the end of the string, or a callback ended the transfer already
-				if (not t.result.done) xfer::Interpreter::finish(t);
+			case xfer::Segment::Kind::Finished:	// a callback ended the transfer, its completion ran
+				return false;
+			default:	// Done: the end of the string
+				xfer::Interpreter::finish(t);
 				return false;
 		}
 	}
