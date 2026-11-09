@@ -71,7 +71,8 @@ I2cTransferBase::run(I2cBus &b, D descriptor, Args... args)
 {
 	if (isBusy() or t.busy) return false;	// do not touch the result of a transfer in flight
 	xfer::bind(t, descriptor, args...);
-	if (not xfer::Interpreter::begin(t, descriptor.c_str(), D::role, D::slots)) return false;
+	// checked at compile time: no parse at run time
+	if (not xfer::Interpreter::begin(t, descriptor)) return false;
 	bus = &b;
 	prefetched = served = false;
 	return start();
@@ -84,9 +85,10 @@ I2cTransferBase::start()
 	return false;	// detaching(FailedToAttach) ended the transfer
 }
 
-// the next data segment, running the callbacks before it; false: the transfer has ended
+// the next data segment, running the callbacks before it; false: the transfer has ended,
+// or a STOP comes first (p after a callback that held the bus: `stopFirst`)
 inline bool
-I2cTransferBase::nextData()
+I2cTransferBase::nextData(bool busHeld)
 {
 	for (;;)
 	{
@@ -96,6 +98,9 @@ I2cTransferBase::nextData()
 			case xfer::Segment::Kind::Data:
 				seg = s; served = false;
 				return true;
+			case xfer::Segment::Kind::Stop:	// release the bus first, the rest after a fresh START
+				if (busHeld) { stopFirst = true; return false; }
+				break;
 			case xfer::Segment::Kind::Callback:
 				if (not xfer::Interpreter::act(t, s.callback(t))) return false;
 				break;
@@ -123,7 +128,7 @@ I2cTransferBase::starting()
 	else
 	{
 		doneData();
-		if (t.result.done or not nextData()) return Starting(0, OperationAfterStart::End);
+		if (t.result.done or not nextData(true)) return Starting(0, OperationAfterStart::End);
 	}
 	if (not seg.read and seg.length == 0)	// a ping: START, address, STOP
 	{
@@ -139,7 +144,7 @@ I2cTransferBase::writing()
 	if (served)	// a joined write: the previous buffer is done, the next one follows
 	{
 		doneData();
-		if (t.result.done or not nextData()) return Writing(nullptr, 0, OperationAfterWrite::Stop);
+		if (t.result.done or not nextData(true)) return Writing(nullptr, 0, OperationAfterWrite::Stop);
 	}
 	served = true;
 	using A = xfer::Segment::After;
@@ -182,7 +187,8 @@ I2cTransferBase::detaching(DetachCause cause)
 	if (cause == DetachCause::NormalStop)
 	{
 		doneData();
-		more = nextData();	// after p: the next segment starts with a fresh START
+		stopFirst = false;
+		more = nextData(false);	// after p: the next segment starts with a fresh START
 	}
 	else if (cause == DetachCause::FailedToAttach)
 		more = xfer::Interpreter::fail(t, Error::Refused);
@@ -190,7 +196,7 @@ I2cTransferBase::detaching(DetachCause cause)
 	{
 		served = false;
 		more = xfer::Interpreter::dataDone(t, seg, map(bus->getErrorState()), uint16_t(bus->getErrorIndex()))
-			   and nextData();	// a callback polls an address NACK
+			   and nextData(false);	// a callback polls an address NACK
 	}
 	// keep the bus: attached again before the driver takes the next queued transaction
 	if (more) { prefetched = true; start(); }

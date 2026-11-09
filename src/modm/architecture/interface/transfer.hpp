@@ -75,7 +75,7 @@ using Completion = void (*)(Transfer&);
 // one step for the engine
 struct Segment
 {
-	enum class Kind : uint8_t { Data, Callback, Pause, Done };
+	enum class Kind : uint8_t { Data, Callback, Pause, Stop, Done };   // Stop: release the bus (p after a hold)
 	enum class After : uint8_t { Stop, Restart, Join, Hold };  // Hold: a callback decides, keep the bus
 
 	Kind kind{Kind::Done};
@@ -90,6 +90,7 @@ struct Segment
 	Callback callback{nullptr};
 	AsyncCallback asyncCallback{nullptr};
 	uint8_t pos{0};            // character offset of the token
+	uint8_t addressPos{0};     // character offset of the I/i that started this segment (an address NACK is reported there)
 };
 
 // ---- the parser --------------------------------------------------------------------------------
@@ -203,6 +204,7 @@ constexpr Parsed parse(std::string_view s, Role role = Role::I2cController)
 			if (inGroup) return fail(at, "groups do not nest");
 			if (join) return fail(at, "+ must be followed by a write");
 			inGroup = true; groupStart = at; p.hasLoop = true;
+			lastWrite = false;   // a join cannot cross the [: on the next pass it would follow the group's last token
 			break;
 		case ']': {
 			if (!inGroup) return fail(at, "] without [");
@@ -210,6 +212,7 @@ constexpr Parsed parse(std::string_view s, Role role = Role::I2cController)
 			const int v = number(star);
 			if (star) slot('n'); else if (v < 0) return fail(at, "] needs a count or *");
 			inGroup = false;
+			lastWrite = false;   // a join cannot cross the ] either: a callback may leave the group after a read
 			break;
 		}
 		case 'D': {
@@ -254,6 +257,7 @@ struct Transfer
 	uint8_t address{0};
 	bool haveAddress{false}, joinNext{false}, lastWasWrite{false}, afterStop{true};
 	bool pingPending{false};          // an address without data so far: a ping (START, address, STOP)
+	uint8_t addressPos{0};            // character offset of the last I/i token (the ping's position)
 	uint16_t timeoutMs{0};
 	uint8_t inlineBuf[16]{};
 	uint8_t slotCount{0};
@@ -284,7 +288,7 @@ struct Interpreter
 	// Returns false with result.error = Descriptor or Refused.
 	static bool begin(Transfer& t, const char* descriptor, Role role, size_t argsGiven)
 	{
-		if (t.busy) { t.result = {}; t.result.error = Error::Refused; t.result.done = true; return false; }
+		if (t.busy) return false;   // Refused: the running transfer's result is not touched
 		const Parsed p = parse(descriptor, role);
 		t.result = {};
 		if (!p.ok || p.slots != argsGiven || p.slots > t.slotCount)
@@ -303,6 +307,23 @@ struct Interpreter
 		return true;
 	}
 
+	// The same for a descriptor checked at compile time: no parse at run time, the slot count is known.
+	static bool beginChecked(Transfer& t, const char* descriptor, Role role, size_t slots)
+	{
+		if (t.busy) return false;   // Refused: the running transfer's result is not touched
+		if (slots > t.slotCount) { t.result = {}; t.result.error = Error::Descriptor; t.result.done = true; return false; }
+		t.descriptor = descriptor; t.role = role;
+		t.result = {};
+		t.pc = t.arg = t.groupPc = t.groupArg = 0; t.groupLeft = 0;
+		t.inGroup = t.groupForever = false;
+		t.haveAddress = t.joinNext = t.lastWasWrite = t.pingPending = false; t.afterStop = true;
+		t.timeoutMs = 0;
+		t.busy = true;
+		return true;
+	}
+	template<typename D>
+	static bool begin(Transfer& t, D d) { return beginChecked(t, d.c_str(), D::role, D::slots); }
+
 	// The next step for the engine. Data segments carry 'after': what the engine does when the
 	// bytes are done (STOP, repeated START, joined write, or hold the bus and ask again).
 	static Segment next(Transfer& t)
@@ -314,7 +335,7 @@ struct Interpreter
 			skipSeps(t, s);
 			if (t.pc >= s.size())
 			{
-				if (t.pingPending) return ping(t, seg, uint8_t(s.size()));
+				if (t.pingPending) return ping(t, seg);
 				seg.kind = Segment::Kind::Done;
 				return seg;
 			}
@@ -322,12 +343,15 @@ struct Interpreter
 			const char c = s[t.pc++];
 			switch (c)
 			{
-			case 'I': t.address = uint8_t(hexNumber(t, s)); t.haveAddress = t.pingPending = true; t.afterStop = false; break;
-			case 'i': t.address = uint8_t(t.args[t.arg++] & 0x7f); t.haveAddress = t.pingPending = true; t.afterStop = false; break;
+			case 'I': case 'i':
+				if (t.pingPending) { t.pc = at; return ping(t, seg); }   // two addresses in a row: the first is a ping
+				t.address = (c == 'I') ? uint8_t(hexNumber(t, s)) : uint8_t(t.args[t.arg++] & 0x7f);
+				t.haveAddress = t.pingPending = true; t.afterStop = false; t.addressPos = at;
+				break;
 			case 'A': { bool star; const int v = hexNumberOrStar(t, s, star); t.address = uint8_t(star ? t.args[t.arg++] : v); t.haveAddress = true; break; }
 			case 'g': break;
 			case 'W': {
-				seg.kind = Segment::Kind::Data; seg.pos = at; seg.address = t.address; seg.read = false;
+				seg.kind = Segment::Kind::Data; seg.pos = at; seg.addressPos = t.addressPos; seg.address = t.address; seg.read = false;
 				seg.start = !t.joinNext; seg.timeoutMs = t.timeoutMs;
 				uint16_t n = 0;
 				while (size_t(t.pc) + 1 < s.size() && hexValue(s[t.pc]) >= 0 && hexValue(s[t.pc + 1]) >= 0 && n < sizeof(t.inlineBuf))
@@ -341,7 +365,7 @@ struct Interpreter
 				return seg;
 			}
 			case 'w': case 'r': case 'x': {
-				seg.kind = Segment::Kind::Data; seg.pos = at; seg.address = t.address; seg.read = (c == 'r');
+				seg.kind = Segment::Kind::Data; seg.pos = at; seg.addressPos = t.addressPos; seg.address = t.address; seg.read = (c == 'r');
 				seg.start = !t.joinNext; seg.timeoutMs = t.timeoutMs;
 				bool star; const int v = hexNumberOrStar(t, s, star);
 				if (c == 'r') seg.rbuf = reinterpret_cast<uint8_t*>(t.args[t.arg++]);
@@ -354,20 +378,23 @@ struct Interpreter
 			}
 			case '+': t.joinNext = true; break;
 			case 'p':
-				if (t.pingPending) return ping(t, seg, at);
-				t.haveAddress = false; t.afterStop = true; break;
+				if (t.pingPending) { t.pc = at; return ping(t, seg); }
+				t.haveAddress = false; t.afterStop = true;
+				seg.kind = Segment::Kind::Stop; seg.pos = at;   // the engine generates the STOP if the bus is still held
+				return seg;
 			case 'c':
-				if (t.pingPending) { t.pc = at; return ping(t, seg, at); }   // the ping comes before the callback
+				if (t.pingPending) { t.pc = at; return ping(t, seg); }   // the ping comes before the callback
 				seg.kind = Segment::Kind::Callback; seg.pos = at;
 				seg.callback = reinterpret_cast<Callback>(t.args[t.arg++]);
 				return seg;
 			case 'C':
-				if (t.pingPending) { t.pc = at; return ping(t, seg, at); }
+				if (t.pingPending) { t.pc = at; return ping(t, seg); }
 				seg.kind = Segment::Kind::Pause; seg.pos = at;
 				seg.asyncCallback = reinterpret_cast<AsyncCallback>(t.args[t.arg++]);
 				return seg;
 			case 't': { bool star; const int v = hexNumberOrStar(t, s, star); t.timeoutMs = uint16_t(star ? t.args[t.arg++] : v); break; }
 			case '[': {
+				if (t.pingPending) { t.pc = at; return ping(t, seg); }
 				t.inGroup = true; t.groupPc = t.pc; t.groupArg = t.arg;
 				const uint16_t count = groupCount(t, s);   // the count is read at the [, so every lookahead knows it
 				t.groupForever = (count == 0);
@@ -375,7 +402,7 @@ struct Interpreter
 				break;
 			}
 			case ']': {
-				if (t.pingPending) { t.pc = at; return ping(t, seg, at); }
+				if (t.pingPending) { t.pc = at; return ping(t, seg); }
 				bool star; hexNumberOrStar(t, s, star);
 				if (t.groupForever || t.groupLeft)
 				{
@@ -398,7 +425,7 @@ struct Interpreter
 	{
 		t.result.count += (error == Error::None) ? seg.length : index;
 		if (error == Error::None) return true;
-		t.result.error = error; t.result.pos = seg.pos; t.result.index = index;
+		t.result.error = error; t.result.pos = (error == Error::AddressNack) ? seg.addressPos : seg.pos; t.result.index = index;
 		// an address NACK inside a group may be polled by a callback: the next token decides
 		if (error == Error::AddressNack && peekIsCallback(t)) return true;
 		return finish(t);
@@ -420,7 +447,8 @@ struct Interpreter
 			return true;
 		case Action::Break:
 			t.result.error = Error::None;
-			if (t.inGroup) { skipToGroupEnd(t); t.inGroup = false; }
+			if (!t.inGroup) return finish(t);   // outside a group the whole string is the group
+			skipToGroupEnd(t); t.inGroup = false;
 			return true;
 		case Action::Stop:
 			t.result.error = Error::None;
@@ -452,9 +480,9 @@ struct Interpreter
 
 private:
 	// an address with no data token: START, address, STOP (v2: a write of NBYTES = 0)
-	static Segment ping(Transfer& t, Segment& seg, uint8_t pos)
+	static Segment ping(Transfer& t, Segment& seg)
 	{
-		seg.kind = Segment::Kind::Data; seg.pos = pos; seg.address = t.address; seg.read = false;
+		seg.kind = Segment::Kind::Data; seg.pos = seg.addressPos = t.addressPos; seg.address = t.address; seg.read = false;
 		seg.start = true; seg.length = 0; seg.after = Segment::After::Stop; seg.timeoutMs = t.timeoutMs;
 		t.pingPending = false;
 		return seg;
@@ -505,11 +533,9 @@ private:
 		if (i < s.size() && s[i] == '*') { i++; return; }
 		while (i < s.size() && hexValue(s[i]) >= 0) i++;
 	}
-	// The count of the group that starts at t.pc: hex after the ], or the argument slot that
-	// follows the group's own slots (the count argument comes last, left to right)
-	static uint16_t groupCount(Transfer& t, std::string_view s)
+	// Argument slots used by the tokens from i up to the ] (i is moved there)
+	static uint8_t slotsUntilGroupEnd(std::string_view s, size_t& i)
 	{
-		size_t i = t.pc;
 		uint8_t slots = 0;
 		while (i < s.size() && s[i] != ']')
 		{
@@ -526,6 +552,14 @@ private:
 			default: break;
 			}
 		}
+		return slots;
+	}
+	// The count of the group that starts at t.pc: hex after the ], or the argument slot that
+	// follows the group's own slots (the count argument comes last, left to right)
+	static uint16_t groupCount(Transfer& t, std::string_view s)
+	{
+		size_t i = t.pc;
+		const uint8_t slots = slotsUntilGroupEnd(s, i);
 		if (i >= s.size()) return 1;
 		i++;
 		if (i < s.size() && s[i] == '*') return uint16_t(t.args[t.arg + slots]);
@@ -543,7 +577,9 @@ private:
 	static void skipToGroupEnd(Transfer& t)
 	{
 		std::string_view s(t.descriptor);
-		while (t.pc < s.size() && s[t.pc] != ']') t.pc++;
+		size_t i = t.pc;
+		t.arg += slotsUntilGroupEnd(s, i);   // the arguments of the tokens left in the group
+		t.pc = uint8_t(i);
 		if (t.pc < s.size()) { t.pc++; bool star; hexNumberOrStar(t, s, star); if (star) t.arg++; }
 	}
 };
@@ -603,7 +639,7 @@ constexpr uintptr_t toSlot(T v)
 
 // Fills the transfer's argument slots from typed arguments; the engine then calls Interpreter::begin.
 template<typename D, typename... Args>
-constexpr void bind(Transfer& t, D, Args... args)
+[[gnu::always_inline]] constexpr void bind(Transfer& t, D, Args... args)
 {
 	static_assert(sizeof...(Args) == D::slots, "wrong number of arguments for this descriptor");
 	static_assert(matchesAll<D, Args...>(std::index_sequence_for<Args...>{}),

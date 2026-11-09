@@ -106,7 +106,7 @@ private:
 	run(I2cBus &bus, D descriptor, Args... args);
 
 	bool start();
-	bool nextData();
+	bool nextData(bool busHeld);
 	void doneData();
 	static Error map(I2cMaster::Error error);
 
@@ -116,6 +116,7 @@ private:
 	xfer::Segment seg{};
 	bool prefetched{false};	///< seg was fetched by detaching() for the next attach
 	bool served{false};		///< seg's buffer was handed to the driver
+	bool stopFirst{false};	///< a p after a held bus: STOP now, the rest after re-attaching
 };
 
 /// A transfer with `Slots` argument slots (the number the descriptor takes).
