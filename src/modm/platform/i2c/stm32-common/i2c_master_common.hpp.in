@@ -34,9 +34,10 @@ void MODM_I2C_TRACE(uint8_t before, uint8_t flag, uint8_t action, uint8_t after)
 namespace modm::platform::i2c_profile
 {
 enum : uint8_t { Other, Isr, Starting, Fetch, Finish, NextData, DataDone, InterpFinish,
-				 TStarting, TWriting, TReading, TDetaching, Count };
+				 TStarting, TWriting, TReading, TDetaching, TakeNext, Continue, NextGlue, Count };
 inline constexpr const char *names[Count] = {"other", "isr", "starting", "fetch", "finish",
-	"nextData", "dataDone", "interpFinish", "t.starting", "t.writing", "t.reading", "t.detaching"};
+	"nextData", "dataDone", "interpFinish", "t.starting", "t.writing", "t.reading", "t.detaching",
+	"takeNext", "continue", "nextGlue"};
 inline uint32_t cycles[Count], calls[Count];
 inline uint8_t stack[8], depth;
 inline uint32_t mark;

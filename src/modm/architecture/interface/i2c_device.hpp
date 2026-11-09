@@ -19,6 +19,7 @@
 #include <modm/architecture/interface/fiber.hpp>
 #include <modm/architecture/interface/clock.hpp>
 #include <modm/architecture/interface/atomic_lock.hpp>
+#include <type_traits>
 
 namespace modm
 {
@@ -37,6 +38,8 @@ class I2cTransferPool
 	static inline I2cTransfer<5> slots[N];
 	static inline volatile uint32_t used{0};
 public:
+	/// calls that found all transfers in use and waited (statistics of the prototype)
+	static inline volatile uint32_t waits{0};
 	static I2cTransferBase *
 	acquire()
 	{
@@ -120,8 +123,11 @@ public:
 	ping()
 	{
 		if constexpr (HasBus) return runTransfer([&](I2cTransferBase &x){ return transferPing(x); });
-		modm::this_fiber::poll([&]{ return transaction.configurePing(); });
-		return runTransaction();
+		else
+		{
+			modm::this_fiber::poll([&]{ return transaction.configurePing(); });
+			return runTransaction();
+		}
 	}
 
 	/// Starts a write-read transaction and waits until finished.
@@ -138,8 +144,11 @@ public:
 			if (readSize) return transferRead(x, readBuffer, readSize);
 			return transferPing(x);
 		});
-		modm::this_fiber::poll([&]{ return transaction.configureWriteRead(writeBuffer, writeSize, readBuffer, readSize); });
-		return runTransaction();
+		else
+		{
+			modm::this_fiber::poll([&]{ return transaction.configureWriteRead(writeBuffer, writeSize, readBuffer, readSize); });
+			return runTransaction();
+		}
 	}
 
 	/// Starts a write transaction and waits until finished.
@@ -147,8 +156,11 @@ public:
 	write(const uint8_t *buffer, std::size_t size)
 	{
 		if constexpr (HasBus) return runTransfer([&](I2cTransferBase &x){ return size ? transferWrite(x, buffer, size) : transferPing(x); });
-		modm::this_fiber::poll([&]{ return transaction.configureWrite(buffer, size); });
-		return runTransaction();
+		else
+		{
+			modm::this_fiber::poll([&]{ return transaction.configureWrite(buffer, size); });
+			return runTransaction();
+		}
 	}
 
 	/// Starts a write transaction and waits until finished.
@@ -156,8 +168,11 @@ public:
 	read(uint8_t *buffer, std::size_t size)
 	{
 		if constexpr (HasBus) return runTransfer([&](I2cTransferBase &x){ return size ? transferRead(x, buffer, size) : transferPing(x); });
-		modm::this_fiber::poll([&]{ return transaction.configureRead(buffer, size); });
-		return runTransaction();
+		else
+		{
+			modm::this_fiber::poll([&]{ return transaction.configureRead(buffer, size); });
+			return runTransaction();
+		}
 	}
 
 	/// The result of the last ping(), write(), read() or writeRead() on a platform whose
@@ -220,7 +235,21 @@ protected:
 	}
 
 protected:
+#ifdef MODM_I2C_DEVICE_NO_TRANSACTION
+	/// Prototype: on a master with bus() the default transaction is never started by
+	/// ping/read/write/writeRead, so it is left out; drivers that start it themselves
+	/// (startTransaction(), runTransaction()) do not compile in this build.
+	struct NoTransaction
+	{
+		constexpr NoTransaction(uint8_t) {}
+		void setAddress(uint8_t) {}
+	};
+	static constexpr bool DropTransaction = requires { I2cMaster::bus(); } and
+			std::is_same_v<Transaction, I2cWriteReadTransaction>;
+	[[no_unique_address]] std::conditional_t<DropTransaction, NoTransaction, Transaction> transaction;
+#else
 	Transaction transaction;
+#endif
 private:
 	// ping(), write(), read() and writeRead() run as transfers where the I2cMaster is an
 	// I2cBus object (I2cMaster::bus()); elsewhere through the transaction as before
@@ -255,7 +284,9 @@ private:
 		const auto expired = [&] { return timeout.count() and modm::Clock::now() - begin > timeout; };
 #ifdef MODM_I2C_TRANSFER_POOL
 		I2cTransferBase *xp{nullptr};
-		modm::this_fiber::poll([&]{ return (xp = Pool::acquire()) or expired(); });
+		bool waited{false};
+		modm::this_fiber::poll([&]{ if (not (xp = Pool::acquire())) waited = true; return xp or expired(); });
+		if (waited) Pool::waits = Pool::waits + 1;
 		if (not xp) { lastResult = {}; lastResult.error = xfer::Error::Aborted; lastResult.done = true; return false; }
 		I2cTransferBase &x = *xp;
 #else
