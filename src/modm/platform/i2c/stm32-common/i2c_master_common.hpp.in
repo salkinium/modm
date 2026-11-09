@@ -1,0 +1,201 @@
+/*
+ * Copyright (c) 2026, Niklas Hauser
+ *
+ * This file is part of the modm project.
+ *
+ * This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
+ */
+// ----------------------------------------------------------------------------
+
+#pragma once
+#include <modm/architecture/interface/i2c_master.hpp>
+#include <modm/architecture/interface/i2c_transaction.hpp>
+#include <modm/platform/device.hpp>
+#include <cstddef>
+#include <cstdint>
+
+#ifdef MODM_I2C_TRACE
+/**
+ * Called for every step of the controller state machine with the state before, the
+ * flag that ended it (or a pseudo flag for software steps), the action taken and the
+ * state after. Off by default; to record the steps, for example to replay them on the
+ * peripheral models, name a function with `modm:build:cppdefines` as
+ * `MODM_I2C_TRACE=my_trace` and define `void my_trace(uint8_t, uint8_t, uint8_t, uint8_t)`.
+ */
+void MODM_I2C_TRACE(uint8_t before, uint8_t flag, uint8_t action, uint8_t after);
+#endif
+
+namespace modm::platform
+{
+
+/// One step of the I2C controller state machine, see I2cMasterBase::State, Flag, Action.
+/// @ingroup	modm_platform_i2c
+struct I2cStep
+{
+	uint8_t before;	///< I2cMasterBase::State
+	uint8_t flag;	///< I2cMasterBase::Flag, or a pseudo flag of I2cMasterCommon
+	uint8_t action;	///< I2cMasterBase::Action
+	uint8_t after;	///< I2cMasterBase::State
+};
+
+/**
+ * The last `Size` steps of the state machine in a ring buffer, frozen at the first
+ * failure: a transfer that ends with an error other than an address or data NACK,
+ * or a reset(). The steps up to the failure stay for inspection until resume().
+ * Enabled with the `modm:platform:i2c:recorder` option (number of steps).
+ *
+ * @ingroup	modm_platform_i2c
+ */
+template< size_t N >
+class I2cStepRecorder
+{
+public:
+	static constexpr size_t Size = N;
+
+	/// Steps recorded, at most Size.
+	size_t
+	size() const
+	{ return (count < N) ? count : N; }
+
+	/// The steps, oldest first.
+	I2cStep
+	operator[](size_t ii) const
+	{ return steps[(count < N) ? ii : (count + ii) % N]; }
+
+	/// A failure froze the recording.
+	bool
+	isFrozen() const
+	{ return frozen; }
+
+	/// Clears the steps and records again.
+	void
+	resume()
+	{ count = 0; frozen = false; }
+
+	void
+	add(I2cStep step)
+	{ if (not frozen) steps[count++ % N] = step; }
+
+	void
+	freeze()
+	{ frozen = true; }
+
+private:
+	I2cStep steps[N]{};
+	volatile size_t count{0};
+	volatile bool frozen{false};
+};
+
+template<>
+class I2cStepRecorder<0>
+{
+public:
+	static constexpr size_t Size = 0;
+	size_t size() const { return 0; }
+	I2cStep operator[](size_t) const { return {}; }
+	bool isFrozen() const { return false; }
+	void resume() {}
+	void add(I2cStep) {}
+	void freeze() {}
+};
+
+/**
+ * The part of the STM32 I2C controller driver that does not depend on the peripheral
+ * version: the transaction queue, attaching and detaching, fetching the buffers, and
+ * recording the steps. I2cMasterBase adds the state machine of the peripheral.
+ *
+ * @ingroup	modm_platform_i2c
+ */
+class I2cMasterCommon : public ::modm::I2c
+{
+public:
+	using Error = ::modm::I2cMaster::Error;
+
+	struct Entry
+	{
+		I2cTransaction *transaction;
+		ConfigurationHandler configuration;
+	};
+
+	/// @param	peripheral	the address of the I2C registers
+	/// @param	queue		storage for the transactions waiting for the bus
+	constexpr I2cMasterCommon(uintptr_t peripheral, Entry *queue, uint16_t capacity) :
+		peripheral(peripheral), queue(queue), capacity(capacity) {}
+
+	Error
+	getErrorState() const
+	{ return error; }
+
+	/// A transaction is attached or its transfer still runs.
+	bool
+	busy() const
+	{ return active or transaction; }
+
+	/// Clears a bus that a device holds, see I2c::clearBus(), `true` after a read was cut
+	/// off. Called by reset() and when the bus is still busy at a START.
+	void (*recoverBus)(bool afterRead) = nullptr;
+
+	/// The last steps of the state machine, frozen at the first failure.
+	I2cStepRecorder<{{ recorder }}> recorder;
+
+	/// pseudo flags of the software steps
+	enum : uint8_t { START = 16, POLL = 17, DEADLINE = 18, BUSY_AT_START = 19 };
+
+protected:
+	enum class
+	Attach : uint8_t { Refused, Queued, Now };
+
+	/// Attaches the transaction, call with interrupts locked.
+	Attach
+	attach(I2cTransaction *transaction, ConfigurationHandler handler);
+
+	/// Detaches the current transaction and attaches the next queued one: `true` if it
+	/// is to begin now.
+	bool
+	finish(DetachCause cause);
+
+	/// Detaches the queued and the current transactions after a reset.
+	void
+	detachAll();
+
+	/// The next buffer: op is what the transaction said follows (Read, Write or Stop for
+	/// a ping). `false` for a read of length 0, which is refused.
+	bool
+	fetch(Operation op);
+
+	void
+	trace(uint8_t before, uint8_t flag, uint8_t action, uint8_t after)
+	{
+#ifdef MODM_I2C_TRACE
+		::MODM_I2C_TRACE(before, flag, action, after);
+#endif
+		recorder.add({before, flag, action, after});
+	}
+
+	I2C_TypeDef *
+	regs() const
+	{ return reinterpret_cast<I2C_TypeDef *>(peripheral); }
+
+	const uintptr_t peripheral;
+	Entry *const queue;
+	const uint16_t capacity;
+	uint16_t head{0}, count{0};
+
+	I2cTransaction *volatile transaction{nullptr};
+	ConfigurationHandler configuration{nullptr};
+
+	// the current buffer, fetched before its START
+	uint8_t address{0};
+	bool reading{false};
+	size_t length{0}, index{0};
+	uint8_t *rbuf{nullptr};
+	const uint8_t *wbuf{nullptr};
+	Operation next{Operation::Stop};	///< after this buffer: Stop, Restart or Write (no Sr)
+
+	volatile bool active{false};
+	volatile Error error{Error::NoError};
+};
+
+} // namespace modm::platform

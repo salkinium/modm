@@ -67,6 +67,16 @@ def prepare(module, options):
         ":container",
         ":platform:gpio")
 
+    module.add_option(
+        NumericOption(
+            name="recorder",
+            description="Steps of the controller state machine kept per instance for "
+                        "debugging, frozen at the first failure (I2cMasterN::instance.recorder). "
+                        "0 disables it.",
+            minimum=0,
+            maximum=1024,
+            default=0))
+
     for instance in listify(device.get_driver("i2c")["instance"]):
         module.add_submodule(Instance(int(instance)))
 
@@ -74,6 +84,8 @@ def prepare(module, options):
 
 def build(env):
     env.outbasepath = "modm/src/modm/platform/i2c"
-    env.substitutions["extended"] = False
-    env.template("../stm32-common/i2c_master_base.hpp.in", "i2c_master_base.hpp")
-    env.template("../stm32-common/i2c_master_base.cpp.in", "i2c_master_base.cpp")
+    env.substitutions["recorder"] = env[":platform:i2c:recorder"]
+    env.template("../stm32-common/i2c_master_common.hpp.in", "i2c_master_common.hpp")
+    env.copy("../stm32-common/i2c_master_common.cpp", "i2c_master_common.cpp")
+    env.copy("i2c_master_base.hpp")
+    env.copy("i2c_master_base.cpp")
