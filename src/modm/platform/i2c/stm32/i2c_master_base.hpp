@@ -72,7 +72,7 @@ private:
 	void hwReset();
 	bool busBusy() const;
 	bool more();
-	void finishSegment();
+	void finishSegment(const I2cTransaction::Starting *starting = nullptr);
 	void end(bool stop);
 	void buffer(bool on);
 

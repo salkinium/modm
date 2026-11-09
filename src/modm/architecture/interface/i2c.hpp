@@ -62,6 +62,10 @@ struct I2c
 		Stop  = uint8_t(Operation::Stop),		///< Generate a Stop Condition
 		Write = uint8_t(Operation::Write),		///< Write data to the slave
 		Read  = uint8_t(Operation::Read),		///< Read data from the slave
+		/// No further segment after a Restart: generate a Stop Condition instead, for
+		/// transactions that decide only now (callbacks between segments). Drivers that
+		/// have programmed the repeated START already address the device and stop.
+		End   = uint8_t(Operation::Restart),
 	};
 
 	/// Further operations after write operation.

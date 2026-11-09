@@ -199,11 +199,15 @@ I2cMasterBase::isr()
 		if (reading) { buffer(true); return go(before, ADDR, Action::ClearRx, State::Rx); }
 		if (not length and not more())
 		{
-			// a ping, or only empty write buffers
+			// a ping, or only empty write buffers; before a Restart the next segment is
+			// asked for first, the transaction may end here instead (OperationAfterStart::End)
+			I2cTransaction::Starting s{0, OperationAfterStart::Stop};
+			if (next == Operation::Restart and (s = transaction->starting()).next == OperationAfterStart::End)
+				next = Operation::Stop;
 			const bool stop = next == Operation::Stop;
 			end(stop); buffer(false);
 			go(before, ADDR, Action(uint8_t(Action::ClearPingP) + (stop ? 0 : 1)), stop ? State::Stopping : State::SbWait);
-			return finishSegment();
+			return finishSegment(stop ? nullptr : &s);
 		}
 		r->DR = wbuf[index++];
 		buffer(index < length or next == Operation::Write);
@@ -274,11 +278,15 @@ I2cMasterBase::isr()
 			buffer(index < length or next == Operation::Write);
 			return go(before, BTF, Action::Write, State::Tx);
 		}
-		// more() may have fetched buffers: the operation after this one is `next` now
+		// more() may have fetched buffers: the operation after this one is `next` now. The
+		// next segment is asked for before its START, the transaction may end here instead.
+		I2cTransaction::Starting s{0, OperationAfterStart::Stop};
+		if (next == Operation::Restart and (s = transaction->starting()).next == OperationAfterStart::End)
+			next = Operation::Stop;
 		const bool stop = next == Operation::Stop;
 		end(stop); buffer(false);
 		go(before, BTF, Action(uint8_t(Action::EndTxP) + (stop ? 0 : 1)), stop ? State::Stopping : State::SbWait);
-		return finishSegment();
+		return finishSegment(stop ? nullptr : &s);
 	}
 	if (buf and (sr1 & I2C_SR1_TXE) and state == State::Tx)
 	{
@@ -313,7 +321,9 @@ I2cMasterBase::begin()
 			if (r->SR2 & I2C_SR2_BUSY) { fail(Error::BusBusy); return detach(DetachCause::ErrorCondition); }
 		}
 	}
-	if (not segment(transaction->starting())) return refuse();
+	const auto s = transaction->starting();
+	if (s.next == OperationAfterStart::End) { active = false; return detach(DetachCause::NormalStop); }
+	if (not segment(s)) return refuse();
 	go(State::Idle, START, Action::Start, State::SbWait);
 	r->CR2 = (r->CR2 & ~I2C_CR2_ITBUFEN) | I2C_CR2_ITEVTEN | I2C_CR2_ITERREN;
 	r->CR1 = (r->CR1 & ~I2C_CR1_POS) | I2C_CR1_ACK | I2C_CR1_START;
@@ -338,11 +348,19 @@ I2cMasterBase::more()
 // the segment is over (STOP or START requested): the transaction is detached at its STOP,
 // at a Restart the next segment is fetched now, its START is already programmed
 void
-I2cMasterBase::finishSegment()
+I2cMasterBase::finishSegment(const I2cTransaction::Starting *starting)
 {
 	if (next == Operation::Stop)
 		return detach((error == Error::NoError) ? DetachCause::NormalStop : DetachCause::ErrorCondition);
-	const auto s = transaction->starting();
+	const auto s = starting ? *starting : transaction->starting();
+	if (s.next == OperationAfterStart::End)
+	{
+		// the transaction ends after a read whose repeated START is programmed already (a
+		// read must decide before its last byte): the device is addressed for writing and
+		// the transfer ends with STOP, without an error
+		reading = false; length = index = 0; next = Operation::Stop;
+		return;
+	}
 	if (not segment(s))
 	{
 		// a read of nothing, refused after its repeated START is requested: the device is

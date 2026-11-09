@@ -12,6 +12,7 @@
 #pragma once
 #include "i2c_master.hpp"
 #include "i2c_transaction.hpp"
+#include "i2c_transfer.hpp"
 #include <cstddef>
 
 namespace modm
@@ -49,9 +50,150 @@ public:
 	virtual size_t
 	getErrorIndex() const = 0;
 
+	/// Runs a transfer described by a string: `bus.transfer(xfer, "I19 W20 r06"_desc, buf)`.
+	/// The number and kinds of the arguments are checked against the descriptor at compile
+	/// time. Returns false if the transfer object is still in use (result: Refused).
+	template< class D, class... Args >
+	bool
+	transfer(I2cTransferBase &xfer, D descriptor, Args... args)
+	{ return xfer.run(*this, descriptor, args...); }
+
 protected:
 	constexpr I2cBus() = default;
 	~I2cBus() = default;
 };
+
+// ---- I2cTransferBase: the interpreter as a source of segments ---------------------------
+
+template< class D, class... Args >
+bool
+I2cTransferBase::run(I2cBus &b, D descriptor, Args... args)
+{
+	if (isBusy() or t.busy) return false;	// do not touch the result of a transfer in flight
+	xfer::bind(t, descriptor, args...);
+	if (not xfer::Interpreter::begin(t, descriptor.c_str(), D::role, D::slots)) return false;
+	bus = &b;
+	prefetched = served = false;
+	return start();
+}
+
+inline bool
+I2cTransferBase::start()
+{
+	if (bus->start(this, configuration)) return true;
+	return false;	// detaching(FailedToAttach) ended the transfer
+}
+
+// the next data segment, running the callbacks before it; false: the transfer has ended
+inline bool
+I2cTransferBase::nextData()
+{
+	for (;;)
+	{
+		const xfer::Segment s = xfer::Interpreter::next(t);
+		switch (s.kind)
+		{
+			case xfer::Segment::Kind::Data:
+				seg = s; served = false;
+				return true;
+			case xfer::Segment::Kind::Callback:
+				if (not xfer::Interpreter::act(t, s.callback(t))) return false;
+				break;
+			case xfer::Segment::Kind::Pause:	// not supported yet
+				xfer::Interpreter::fail(t, Error::Internal, s.pos);
+				return false;
+			case xfer::Segment::Kind::Done:
+				xfer::Interpreter::finish(t);
+				return false;
+		}
+	}
+}
+
+// the segment handed to the driver has ended without an error
+inline void
+I2cTransferBase::doneData()
+{
+	if (served) { xfer::Interpreter::dataDone(t, seg, Error::None, 0); served = false; }
+}
+
+inline I2cTransaction::Starting
+I2cTransferBase::starting()
+{
+	if (prefetched) prefetched = false;
+	else
+	{
+		doneData();
+		if (t.result.done or not nextData()) return Starting(0, OperationAfterStart::End);
+	}
+	if (not seg.read and seg.length == 0)	// a ping: START, address, STOP
+	{
+		served = true;
+		return Starting(seg.address << 1, OperationAfterStart::Stop);
+	}
+	return Starting(seg.address << 1, seg.read ? OperationAfterStart::Read : OperationAfterStart::Write);
+}
+
+inline I2cTransaction::Writing
+I2cTransferBase::writing()
+{
+	if (served)	// a joined write: the previous buffer is done, the next one follows
+	{
+		doneData();
+		if (t.result.done or not nextData()) return Writing(nullptr, 0, OperationAfterWrite::Stop);
+	}
+	served = true;
+	using A = xfer::Segment::After;
+	const auto next = (seg.after == A::Join) ? OperationAfterWrite::Write :
+					  (seg.after == A::Stop) ? OperationAfterWrite::Stop : OperationAfterWrite::Restart;
+	return Writing(seg.wbuf, seg.length, next);
+}
+
+inline I2cTransaction::Reading
+I2cTransferBase::reading()
+{
+	served = true;
+	return Reading(seg.rbuf, seg.length, (seg.after == xfer::Segment::After::Stop) ?
+				   OperationAfterRead::Stop : OperationAfterRead::Restart);
+}
+
+inline xfer::Error
+I2cTransferBase::map(I2cMaster::Error error)
+{
+	using E = I2cMaster::Error;
+	switch (error)
+	{
+		case E::NoError:			return Error::None;
+		case E::AddressNack:		return Error::AddressNack;
+		case E::DataNack:			return Error::DataNack;
+		case E::ArbitrationLost:	return Error::ArbitrationLost;
+		case E::BusCondition:		return Error::BusError;
+		case E::BusBusy:			return Error::BusBusy;
+		case E::SoftwareReset:		return Error::Aborted;
+		default:					return Error::Internal;
+	}
+}
+
+inline void
+I2cTransferBase::detaching(DetachCause cause)
+{
+	I2cTransaction::detaching(cause);
+	if (t.result.done) return;	// ended between segments (OperationAfterStart::End)
+	bool more;
+	if (cause == DetachCause::NormalStop)
+	{
+		doneData();
+		more = nextData();	// after p: the next segment starts with a fresh START
+	}
+	else if (cause == DetachCause::FailedToAttach)
+		more = xfer::Interpreter::fail(t, Error::Refused);
+	else
+	{
+		served = false;
+		more = xfer::Interpreter::dataDone(t, seg, map(bus->getErrorState()), uint16_t(bus->getErrorIndex()))
+			   and nextData();	// a callback polls an address NACK
+	}
+	// keep the bus: attached again before the driver takes the next queued transaction
+	if (more) { prefetched = true; start(); }
+}
 
 }	// namespace modm

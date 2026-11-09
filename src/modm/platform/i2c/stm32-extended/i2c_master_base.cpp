@@ -227,7 +227,14 @@ I2cMasterBase::isr()
 	else if (isr & I2C_ISR_TC)
 	{
 		if (next != Operation::Restart) return unexpected(TC);
-		if (not segment(transaction->starting())) return stop(before, TC);
+		const auto s = transaction->starting();
+		if (s.next == OperationAfterStart::End)
+		{
+			// the transaction decided to end here: STOP from TC, without an error
+			regs()->CR2 = (regs()->CR2 & ~(I2C_CR2_NBYTES | I2C_CR2_RELOAD | I2C_CR2_AUTOEND | I2C_CR2_START)) | I2C_CR2_STOP;
+			return go(before, TC, Action::Stop, State::Stopping);
+		}
+		if (not segment(s)) return stop(before, TC);
 		go(before, TC, Action::Next, State::Addr);
 	}
 	else if (isr & I2C_ISR_STOPF)
@@ -260,7 +267,9 @@ I2cMasterBase::begin()
 	}
 	go(State::Idle, START, Action::Start, State::Addr);
 	r->CR1 = I2C_CR1_PE | I2C_CR1_ERRIE | I2C_CR1_TCIE | I2C_CR1_STOPIE | I2C_CR1_NACKIE | I2C_CR1_RXIE | I2C_CR1_TXIE;
-	if (not segment(transaction->starting())) refuse();
+	const auto s = transaction->starting();
+	if (s.next == OperationAfterStart::End) { r->CR1 = I2C_CR1_PE | I2C_CR1_ERRIE; active = false; return detach(DetachCause::NormalStop); }
+	if (not segment(s)) refuse();
 }
 
 // fetches the segment that follows a START and sends the START
