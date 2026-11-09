@@ -227,6 +227,7 @@ class I2c(Module):
         env.copy("interface/i2c.hpp")
         env.copy("interface/i2c_master.hpp")
         env.copy("interface/i2c_transaction.hpp")
+        env.copy("interface/i2c_bus.hpp")
 # -----------------------------------------------------------------------------
 
 class I2cDevice(Module):

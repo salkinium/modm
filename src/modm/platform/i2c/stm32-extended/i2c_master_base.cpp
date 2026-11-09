@@ -86,7 +86,7 @@ I2cMasterBase::unexpected(uint8_t flag)
 {
 	go(state, flag, Action::Unexpected, State::Idle);
 	hwReset();
-	error = Error::Unknown;
+	fail(Error::Unknown);
 	detach(DetachCause::ErrorCondition);
 }
 
@@ -148,14 +148,16 @@ I2cMasterBase::isr()
 	if (isr & I2C_ISR_NACKF)
 	{
 		// the STOP follows automatically
-		error = (before == State::Addr) ? Error::AddressNack : Error::DataNack;
+		// the refused byte: the last one sent, before a byte still waiting in TXDR
+		if (before == State::Addr) fail(Error::AddressNack, index);
+		else fail(Error::DataNack, (isr & I2C_ISR_TXE) ? 1 : 2);
 		r->ICR = I2C_ICR_NACKCF;
 		r->ISR = I2C_ISR_TXE;
 		go(before, NACKF, Action::Nack, State::Stopping);
 	}
 	else if (isr & I2C_ISR_BERR)
 	{
-		error = Error::BusCondition;
+		fail(Error::BusCondition);
 		r->ICR = I2C_ICR_BERRCF;
 		go(before, BERR, Action::Berr, before);
 	}
@@ -163,7 +165,7 @@ I2cMasterBase::isr()
 	{
 		r->ICR = I2C_ICR_ARLOCF;
 		go(before, ARLO, Action::Arlo, State::Idle);
-		error = Error::ArbitrationLost;
+		fail(Error::ArbitrationLost);
 		detach(DetachCause::ErrorCondition);
 	}
 #ifdef I2C_ISR_TIMEOUT
@@ -173,7 +175,7 @@ I2cMasterBase::isr()
 		r->ICR = I2C_ICR_TIMOUTCF;
 		go(before, TIMEOUT, Action::Unexpected, State::Idle);
 		hwReset();
-		error = Error::BusCondition;
+		fail(Error::BusCondition);
 		detach(DetachCause::ErrorCondition);
 	}
 #endif
@@ -253,7 +255,7 @@ I2cMasterBase::begin()
 			hwReset();
 			if ((r->ISR & I2C_ISR_BUSY) and recoverBus) { recoverBus(false); hwReset(); }
 			go(State::Idle, BUSY_AT_START, Action::Reset, State::Idle);
-			if (r->ISR & I2C_ISR_BUSY) { error = Error::BusBusy; return detach(DetachCause::ErrorCondition); }
+			if (r->ISR & I2C_ISR_BUSY) { fail(Error::BusBusy); return detach(DetachCause::ErrorCondition); }
 		}
 	}
 	go(State::Idle, START, Action::Start, State::Addr);
@@ -289,7 +291,7 @@ I2cMasterBase::chunk()
 void
 I2cMasterBase::stop(State before, uint8_t flag)
 {
-	error = Error::Unknown;
+	fail(Error::Unknown);
 	regs()->CR2 = (regs()->CR2 & ~(I2C_CR2_NBYTES | I2C_CR2_RELOAD | I2C_CR2_AUTOEND | I2C_CR2_START)) | I2C_CR2_STOP;
 	go(before, flag, Action::Stop, State::Stopping);
 }
@@ -299,7 +301,7 @@ void
 I2cMasterBase::refuse()
 {
 	go(state, START, Action::Unexpected, State::Idle);
-	error = Error::Unknown;
+	fail(Error::Unknown);
 	regs()->CR1 = I2C_CR1_PE | I2C_CR1_ERRIE;
 	detach(DetachCause::ErrorCondition);
 }

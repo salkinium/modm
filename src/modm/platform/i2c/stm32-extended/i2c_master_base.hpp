@@ -32,13 +32,13 @@ public:
 
 	/// Attaches the transaction and starts it, or queues it while the bus is in use.
 	bool
-	start(I2cTransaction *transaction, ConfigurationHandler handler = nullptr);
+	start(I2cTransaction *transaction, ConfigurationHandler handler = nullptr) final;
 
 	/// Ends the transfer with a STOP after the current byte, detaches the current and all
 	/// queued transactions, resets the peripheral and clears the bus with `recoverBus`
 	/// if a device still holds it. Busy waits up to 4 ms; not from an interrupt.
 	void
-	reset();
+	reset() final;
 
 	/// The interrupt handler of the event and error interrupts.
 	void

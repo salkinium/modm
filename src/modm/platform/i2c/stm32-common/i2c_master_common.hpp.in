@@ -10,7 +10,7 @@
 // ----------------------------------------------------------------------------
 
 #pragma once
-#include <modm/architecture/interface/i2c_master.hpp>
+#include <modm/architecture/interface/i2c_bus.hpp>
 #include <modm/architecture/interface/i2c_transaction.hpp>
 #include <modm/platform/device.hpp>
 #include <cstddef>
@@ -42,8 +42,8 @@ struct I2cStep
 
 /**
  * The last `Size` steps of the state machine in a ring buffer, frozen at the first
- * failure: a transfer that ends with an error other than an address or data NACK,
- * or a reset(). The steps up to the failure stay for inspection until resume().
+ * failure: a transfer that ends with an error other than an address NACK (which also
+ * means absent or busy), or a reset(). The steps up to the failure stay for inspection until resume().
  * Enabled with the `modm:platform:i2c:recorder` option (number of steps).
  *
  * @ingroup	modm_platform_i2c
@@ -108,25 +108,19 @@ public:
  *
  * @ingroup	modm_platform_i2c
  */
-class I2cMasterCommon : public ::modm::I2c
+class I2cMasterCommon : public ::modm::I2cBus
 {
 public:
-	using Error = ::modm::I2cMaster::Error;
-
-	struct Entry
-	{
-		I2cTransaction *transaction;
-		ConfigurationHandler configuration;
-	};
-
 	/// @param	peripheral	the address of the I2C registers
-	/// @param	queue		storage for the transactions waiting for the bus
-	constexpr I2cMasterCommon(uintptr_t peripheral, Entry *queue, uint16_t capacity) :
-		peripheral(peripheral), queue(queue), capacity(capacity) {}
+	constexpr I2cMasterCommon(uintptr_t peripheral) : peripheral(peripheral) {}
 
 	Error
-	getErrorState() const
+	getErrorState() const final
 	{ return error; }
+
+	size_t
+	getErrorIndex() const final
+	{ return errorIndex; }
 
 	/// A transaction is attached or its transfer still runs.
 	bool
@@ -178,10 +172,17 @@ protected:
 	regs() const
 	{ return reinterpret_cast<I2C_TypeDef *>(peripheral); }
 
+	/// Sets the error and its byte position (`index`, less the bytes still waiting in the
+	/// transmit register when a target refused one).
+	void
+	fail(Error e, size_t pending = 0)
+	{
+		error = e;
+		errorIndex = (index >= pending) ? index - pending : 0;
+	}
+
 	const uintptr_t peripheral;
-	Entry *const queue;
-	const uint16_t capacity;
-	uint16_t head{0}, count{0};
+	I2cTransaction *queueHead{nullptr}, *queueTail{nullptr};	///< intrusive, through I2cTransaction::queueNext
 
 	I2cTransaction *volatile transaction{nullptr};
 	ConfigurationHandler configuration{nullptr};
@@ -196,6 +197,7 @@ protected:
 
 	volatile bool active{false};
 	volatile Error error{Error::NoError};
+	size_t errorIndex{0};
 };
 
 } // namespace modm::platform

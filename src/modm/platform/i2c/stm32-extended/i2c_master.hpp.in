@@ -34,14 +34,16 @@ namespace modm::platform
 class I2cMaster{{ id }} : public ::modm::I2cMaster
 {
 public:
+	/// Deprecated: the queue has no capacity limit any more (option buffer.transaction is ignored).
 	static constexpr size_t TransactionBufferSize = {{ options["buffer.transaction"] }};
 
-private:
-	static inline I2cMasterBase::Entry queue[TransactionBufferSize]{};
-
-public:
 	/// The driver object of this instance
-	static inline constinit I2cMasterBase instance{I2C{{ id }}_BASE, queue, TransactionBufferSize};
+	static inline constinit I2cMasterBase instance{I2C{{ id }}_BASE};
+
+	/// This instance as an object, for drivers that take a modm::I2cBus.
+	static modm::I2cBus&
+	bus()
+	{ return instance; }
 
 private:
 	template<class SystemClock, baudrate_t baudrate, percent_t tolerance>

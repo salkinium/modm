@@ -87,7 +87,7 @@ I2cMasterBase::unexpected(uint8_t flag)
 {
 	go(state, flag, Action::Unexpected, State::Idle);
 	hwReset();
-	error = Error::Unknown;
+	fail(Error::Unknown);
 	detach(DetachCause::ErrorCondition);
 }
 
@@ -212,7 +212,12 @@ I2cMasterBase::isr()
 	if (sr1 & I2C_SR1_AF)
 	{
 		// the first error of the transfer stays (a refused read ends with a write ping)
-		if (error == Error::NoError) error = (state == State::Addr) ? Error::AddressNack : Error::DataNack;
+		if (error == Error::NoError)
+		{
+			// the refused byte: the last one sent, before a byte still waiting in DR
+			if (state == State::Addr) fail(Error::AddressNack, index);
+			else fail(Error::DataNack, (sr1 & I2C_SR1_TXE) ? 1 : 2);
+		}
 		r->SR1 = ~I2C_SR1_AF;
 		r->CR1 |= I2C_CR1_STOP;
 		buffer(false);
@@ -221,7 +226,7 @@ I2cMasterBase::isr()
 	}
 	if (sr1 & I2C_SR1_BERR)
 	{
-		error = Error::BusCondition;
+		fail(Error::BusCondition);
 		r->SR1 = ~I2C_SR1_BERR;
 		return go(before, BERR, Action::Berr, before);
 	}
@@ -230,7 +235,7 @@ I2cMasterBase::isr()
 		r->SR1 = ~I2C_SR1_ARLO;
 		buffer(false);
 		go(before, ARLO, Action::Arlo, State::BusyOther);
-		error = Error::ArbitrationLost;
+		fail(Error::ArbitrationLost);
 		return detach(DetachCause::ErrorCondition);
 	}
 	// BTF stays set after STOP/START is programmed at BTF until the condition is on the
@@ -305,7 +310,7 @@ I2cMasterBase::begin()
 			hwReset();
 			if ((r->SR2 & I2C_SR2_BUSY) and recoverBus) { recoverBus(false); hwReset(); }
 			go(State::Idle, BUSY_AT_START, Action::Reset, State::Idle);
-			if (r->SR2 & I2C_SR2_BUSY) { error = Error::BusBusy; return detach(DetachCause::ErrorCondition); }
+			if (r->SR2 & I2C_SR2_BUSY) { fail(Error::BusBusy); return detach(DetachCause::ErrorCondition); }
 		}
 	}
 	if (not segment(transaction->starting())) return refuse();
@@ -342,7 +347,7 @@ I2cMasterBase::finishSegment()
 	{
 		// a read of nothing, refused after its repeated START is requested: the device is
 		// addressed for writing and the transfer ends with STOP (a ping), then fails
-		error = Error::Unknown;
+		fail(Error::Unknown);
 		address = s.address & 0xfe; reading = false; length = index = 0; next = Operation::Stop;
 	}
 }
@@ -352,7 +357,7 @@ void
 I2cMasterBase::refuse()
 {
 	go(state, START, Action::Unexpected, State::Idle);
-	error = Error::Unknown;
+	fail(Error::Unknown);
 	if (state != State::Idle) hwReset();
 	detach(DetachCause::ErrorCondition);
 }

@@ -223,6 +223,14 @@ public:
 protected:
 	uint8_t address;
 	volatile TransactionState state;
+
+public:
+	/// Used by the I2C controller drivers: the queue of transactions waiting for the bus
+	/// is a list through these, so it has no capacity limit.
+	/// @{
+	I2cTransaction *queueNext{nullptr};
+	ConfigurationHandler queueConfiguration{nullptr};
+	/// @}
 };
 
 /**
