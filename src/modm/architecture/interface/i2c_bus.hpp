@@ -54,9 +54,17 @@ public:
 	/// The number and kinds of the arguments are checked against the descriptor at compile
 	/// time. Returns false if the transfer object is still in use (result: Refused).
 	template< class D, class... Args >
+		requires requires { D::slots; D::role; }
 	bool
 	transfer(I2cTransferBase &xfer, D descriptor, Args... args)
 	{ return xfer.run(*this, descriptor, args...); }
+
+	/// The same for a descriptor known only at run time (the C API, replays): the string is
+	/// parsed now, `args` are the pointer-sized argument slots in descriptor order. A wrong
+	/// string or count ends the transfer at once with Error::Descriptor and its position.
+	bool
+	transfer(I2cTransferBase &xfer, const char *descriptor, const uintptr_t *args, size_t count)
+	{ return xfer.runParsed(*this, descriptor, args, count); }
 
 protected:
 	constexpr I2cBus() = default;
@@ -73,6 +81,22 @@ I2cTransferBase::run(I2cBus &b, D descriptor, Args... args)
 	xfer::bind(t, descriptor, args...);
 	// checked at compile time: no parse at run time
 	if (not xfer::Interpreter::begin(t, descriptor)) return false;
+	bus = &b;
+	prefetched = served = false;
+	return start();
+}
+
+inline bool
+I2cTransferBase::runParsed(I2cBus &b, const char *descriptor, const uintptr_t *args, size_t count)
+{
+	if (isBusy() or t.busy) return false;
+	if (count > t.slotCount)
+	{
+		t.result = {}; t.result.error = Error::Descriptor; t.result.done = true;
+		return false;
+	}
+	for (size_t ii = 0; ii < count; ii++) t.args[ii] = args[ii];
+	if (not xfer::Interpreter::begin(t, descriptor, xfer::Role::I2cController, count)) return false;
 	bus = &b;
 	prefetched = served = false;
 	return start();

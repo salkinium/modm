@@ -105,6 +105,9 @@ private:
 	bool
 	run(I2cBus &bus, D descriptor, Args... args);
 
+	bool
+	runParsed(I2cBus &bus, const char *descriptor, const uintptr_t *args, size_t count);
+
 	bool start();
 	bool nextData(bool busHeld);
 	void doneData();
