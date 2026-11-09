@@ -23,6 +23,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <memory>
 #include <string_view>
 #include <type_traits>
 
@@ -438,6 +439,8 @@ struct Transfer
 	uint8_t preCapacity{0}, preCount{0}, preIndex{0};
 	volatile bool busy{false};
 
+	[[gnu::noinline]] Transfer() {}   // one copy of the member initialization for every driver type
+
 	bool isBusy() const { return busy; }
 	// Waits on the volatile busy flag, which finish() clears after the result is final: a loop on
 	// result.done (a plain bool written from the interrupt) is folded into one read by the compiler.
@@ -452,8 +455,10 @@ struct Transfer
 template<size_t N, size_t Prepared = 0>
 struct TransferN : Transfer
 {
-	uintptr_t storage[N ? N : 1]{};
-	Segment prepared[Prepared ? Prepared : 1]{};
+	// Neither array is initialized: bind() writes the slots, prepare() the segments, both before
+	// they are read. Zeroing them cost every driver type that holds a transfer constructor code.
+	union { uintptr_t storage[N ? N : 1]; };
+	union { Segment prepared[Prepared ? Prepared : 1]; };
 	TransferN() { args = storage; slotCount = N; pre = prepared; preCapacity = Prepared; }
 };
 
@@ -517,7 +522,7 @@ struct Interpreter
 			Segment seg = step(t);
 			if (seg.kind == Segment::Kind::Done) break;
 			if (n == t.preCapacity || (seg.kind != Segment::Kind::Data && seg.kind != Segment::Kind::Stop)) { reset(t); return; }   // does not fit: interpret in the interrupt
-			t.pre[n++] = seg;
+			std::construct_at(&t.pre[n++], seg);   // the array is raw storage until here
 		}
 		if (n && t.pre[n - 1].kind == Segment::Kind::Data && t.pre[n - 1].after == Segment::After::Stop) t.pre[n - 1].last = true;
 		t.preCount = n;
@@ -554,7 +559,7 @@ struct Interpreter
 	static Segment next(Transfer& t) { Segment s; return *next(t, s); }
 
 	// one step of the interpreter proper
-	static Segment step(Transfer& t)
+	[[gnu::noinline]] static Segment step(Transfer& t)   // one copy for prepare() and the interrupt
 	{
 		using namespace bytecode;
 		Segment seg;
