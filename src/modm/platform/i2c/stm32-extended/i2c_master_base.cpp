@@ -142,6 +142,7 @@ I2cMasterBase::hwReset()
 void
 I2cMasterBase::isr()
 {
+	MODM_I2C_PROFILE_SCOPE(Isr);
 	I2C_TypeDef *const r = regs();
 	const uint32_t isr = r->ISR;
 	const State before = state;

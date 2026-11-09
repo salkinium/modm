@@ -28,6 +28,42 @@
 void MODM_I2C_TRACE(uint8_t before, uint8_t flag, uint8_t action, uint8_t after);
 #endif
 
+#ifdef MODM_I2C_PROFILE
+/// Cycle profile of the interrupt path (measurement builds only, cppdefine MODM_I2C_PROFILE):
+/// every scope adds its own cycles, without those of the scopes it calls, in interrupt context.
+namespace modm::platform::i2c_profile
+{
+enum : uint8_t { Other, Isr, Starting, Fetch, Finish, NextData, DataDone, InterpFinish,
+				 TStarting, TWriting, TReading, TDetaching, Count };
+inline constexpr const char *names[Count] = {"other", "isr", "starting", "fetch", "finish",
+	"nextData", "dataDone", "interpFinish", "t.starting", "t.writing", "t.reading", "t.detaching"};
+inline uint32_t cycles[Count], calls[Count];
+inline uint8_t stack[8], depth;
+inline uint32_t mark;
+inline void reset() { for (auto &c : cycles) c = 0; for (auto &c : calls) c = 0; depth = 0; }
+struct Scope
+{
+	const bool on;
+	Scope(uint8_t id) : on(__get_IPSR() != 0)
+	{
+		if (not on) return;
+		cycles[stack[depth]] += DWT->CYCCNT - mark;
+		stack[++depth] = id; calls[id]++;
+		mark = DWT->CYCCNT;
+	}
+	~Scope()
+	{
+		if (not on) return;
+		cycles[stack[depth--]] += DWT->CYCCNT - mark;
+		mark = DWT->CYCCNT;
+	}
+};
+}	// namespace modm::platform::i2c_profile
+#define MODM_I2C_PROFILE_SCOPE(id) ::modm::platform::i2c_profile::Scope modm_i2c_profile_scope{::modm::platform::i2c_profile::id}
+#else
+#define MODM_I2C_PROFILE_SCOPE(id)
+#endif
+
 namespace modm::platform
 {
 
