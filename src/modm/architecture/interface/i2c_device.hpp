@@ -18,9 +18,42 @@
 #include "i2c_bus.hpp"
 #include <modm/architecture/interface/fiber.hpp>
 #include <modm/architecture/interface/clock.hpp>
+#include <modm/architecture/interface/atomic_lock.hpp>
 
 namespace modm
 {
+
+#ifdef MODM_I2C_TRANSFER_POOL
+/**
+ * Transfer objects shared by the I2cDevices of one I2cMaster (prototype): with the
+ * cppdefine `MODM_I2C_TRANSFER_POOL=N` an I2cDevice holds no transfer of its own but takes
+ * one of N for each call and waits in its fiber while all are in use. N is the number of
+ * calls that may be in flight on the bus at once (the number of fibers using it).
+ */
+template< class I2cMaster, size_t N = MODM_I2C_TRANSFER_POOL >
+class I2cTransferPool
+{
+	static_assert(N > 0 and N <= 32);
+	static inline I2cTransfer<5> slots[N];
+	static inline volatile uint32_t used{0};
+public:
+	static I2cTransferBase *
+	acquire()
+	{
+		modm::atomic::Lock lock;
+		for (size_t ii = 0; ii < N; ii++)
+			if (not (used & (1ul << ii))) { used = used | (1ul << ii); return &slots[ii]; }
+		return nullptr;
+	}
+	static void
+	release(I2cTransferBase *x)
+	{
+		modm::atomic::Lock lock;
+		for (size_t ii = 0; ii < N; ii++)
+			if (x == &slots[ii]) used = used & ~(1ul << ii);
+	}
+};
+#endif
 
 /**
  * Base class of an I2C Device.
@@ -86,7 +119,7 @@ public:
 	[[nodiscard]] bool
 	ping()
 	{
-		if constexpr (HasBus) return runTransfer([&]{ return transferPing(); });
+		if constexpr (HasBus) return runTransfer([&](I2cTransferBase &x){ return transferPing(x); });
 		modm::this_fiber::poll([&]{ return transaction.configurePing(); });
 		return runTransaction();
 	}
@@ -96,14 +129,14 @@ public:
 	writeRead(const uint8_t *writeBuffer, std::size_t writeSize,
 			  uint8_t *readBuffer, std::size_t readSize)
 	{
-		if constexpr (HasBus) return runTransfer([&]
+		if constexpr (HasBus) return runTransfer([&](I2cTransferBase &x)
 		{
 			using xfer::operator""_desc;
 			if (writeSize and readSize)
-				return I2cMaster::bus().transfer(xfer, "s w* r*"_desc, deviceAddress, writeBuffer, writeSize, readBuffer, readSize);
-			if (writeSize) return transferWrite(writeBuffer, writeSize);
-			if (readSize) return transferRead(readBuffer, readSize);
-			return transferPing();
+				return I2cMaster::bus().transfer(x, "s w* r*"_desc, deviceAddress, writeBuffer, writeSize, readBuffer, readSize);
+			if (writeSize) return transferWrite(x, writeBuffer, writeSize);
+			if (readSize) return transferRead(x, readBuffer, readSize);
+			return transferPing(x);
 		});
 		modm::this_fiber::poll([&]{ return transaction.configureWriteRead(writeBuffer, writeSize, readBuffer, readSize); });
 		return runTransaction();
@@ -113,7 +146,7 @@ public:
 	[[nodiscard]] bool
 	write(const uint8_t *buffer, std::size_t size)
 	{
-		if constexpr (HasBus) return runTransfer([&]{ return size ? transferWrite(buffer, size) : transferPing(); });
+		if constexpr (HasBus) return runTransfer([&](I2cTransferBase &x){ return size ? transferWrite(x, buffer, size) : transferPing(x); });
 		modm::this_fiber::poll([&]{ return transaction.configureWrite(buffer, size); });
 		return runTransaction();
 	}
@@ -122,7 +155,7 @@ public:
 	[[nodiscard]] bool
 	read(uint8_t *buffer, std::size_t size)
 	{
-		if constexpr (HasBus) return runTransfer([&]{ return size ? transferRead(buffer, size) : transferPing(); });
+		if constexpr (HasBus) return runTransfer([&](I2cTransferBase &x){ return size ? transferRead(x, buffer, size) : transferPing(x); });
 		modm::this_fiber::poll([&]{ return transaction.configureRead(buffer, size); });
 		return runTransaction();
 	}
@@ -131,7 +164,11 @@ public:
 	/// I2cMaster has a bus(): the error, the token and the byte where it happened.
 	const xfer::Result&
 	transferResult() const
+#ifdef MODM_I2C_TRANSFER_POOL
+	{ return lastResult; }
+#else
 	{ return xfer.result(); }
+#endif
 
 protected:
 	/// Starts the transaction with our own transaction object.
@@ -190,22 +227,22 @@ private:
 	static constexpr bool HasBus = requires { I2cMaster::bus(); };
 
 	bool
-	transferPing()
+	transferPing(I2cTransferBase &x)
 	{
 		using xfer::operator""_desc;
-		return I2cMaster::bus().transfer(xfer, "s"_desc, deviceAddress);
+		return I2cMaster::bus().transfer(x, "s"_desc, deviceAddress);
 	}
 	bool
-	transferWrite(const uint8_t *buffer, std::size_t size)
+	transferWrite(I2cTransferBase &x, const uint8_t *buffer, std::size_t size)
 	{
 		using xfer::operator""_desc;
-		return I2cMaster::bus().transfer(xfer, "s w*"_desc, deviceAddress, buffer, size);
+		return I2cMaster::bus().transfer(x, "s w*"_desc, deviceAddress, buffer, size);
 	}
 	bool
-	transferRead(uint8_t *buffer, std::size_t size)
+	transferRead(I2cTransferBase &x, uint8_t *buffer, std::size_t size)
 	{
 		using xfer::operator""_desc;
-		return I2cMaster::bus().transfer(xfer, "s r*"_desc, deviceAddress, buffer, size);
+		return I2cMaster::bus().transfer(x, "s r*"_desc, deviceAddress, buffer, size);
 	}
 
 	/// Starts the transfer and waits until finished or the timeout expired.
@@ -214,25 +251,40 @@ private:
 	runTransfer(Start&& start)
 	{
 		I2cMaster::setTransactionTimeout(timeout);
-		xfer.setConfiguration(configuration);
 		const auto begin = modm::Clock::now();
 		const auto expired = [&] { return timeout.count() and modm::Clock::now() - begin > timeout; };
+#ifdef MODM_I2C_TRANSFER_POOL
+		I2cTransferBase *xp{nullptr};
+		modm::this_fiber::poll([&]{ return (xp = Pool::acquire()) or expired(); });
+		if (not xp) { lastResult = {}; lastResult.error = xfer::Error::Aborted; lastResult.done = true; return false; }
+		I2cTransferBase &x = *xp;
+#else
+		I2cTransferBase &x = xfer;
+#endif
+		x.setConfiguration(configuration);
 		bool started{false};
-		modm::this_fiber::poll([&]{ return (started = start()) or expired(); });
-		if (started) modm::this_fiber::poll([&]{ return xfer.isDone() or expired(); });
-		if (not started or not xfer.isDone())
-		{
-			// The bus is stuck: detach all transactions and reset the master
-			I2cMaster::reset();
-			return false;
-		}
-		return xfer.result().error == xfer::Error::None;
+		modm::this_fiber::poll([&]{ return (started = start(x)) or expired(); });
+		if (started) modm::this_fiber::poll([&]{ return x.isDone() or expired(); });
+		const bool stuck = not started or not x.isDone();
+		// The bus is stuck: detach all transactions and reset the master
+		if (stuck) I2cMaster::reset();
+		const bool ok = not stuck and x.result().error == xfer::Error::None;
+#ifdef MODM_I2C_TRANSFER_POOL
+		lastResult = x.result();
+		Pool::release(xp);
+#endif
+		return ok;
 	}
 
 	I2c::ConfigurationHandler configuration;
 	std::chrono::milliseconds timeout{100};
 	uint8_t deviceAddress;
+#ifdef MODM_I2C_TRANSFER_POOL
+	using Pool = I2cTransferPool<I2cMaster>;
+	xfer::Result lastResult{};
+#else
 	I2cTransfer<5> xfer;
+#endif
 };
 
 }	// namespace modm
