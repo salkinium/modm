@@ -92,6 +92,13 @@ private:
 	}
 
 	volatile State state{State::Idle};
+#ifdef MODM_I2C_DMA_RX
+	/// Prototype: a read that fits one NBYTES chunk is received by the DMA channel
+	/// MODM_I2C_DMA_RX (e.g. DMA1_Channel7 for I2C1 on STM32F3, clock enabled by the
+	/// application) instead of one RXNE interrupt per byte. Only for one I2C instance.
+	bool dmaRx{false};
+	void dmaRxEnd(bool finished);
+#endif
 	size_t planned{0};	///< bytes of the buffer programmed into NBYTES so far
 	uint32_t timingr{0};
 };

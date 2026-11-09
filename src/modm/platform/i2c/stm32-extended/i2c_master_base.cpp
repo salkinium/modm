@@ -128,9 +128,26 @@ I2cMasterBase::setTimeout(uint16_t ticks)
 }
 #endif
 
+#ifdef MODM_I2C_DMA_RX
+// the bytes the DMA channel received so far are the read's index; `finished`: the read ended
+void
+I2cMasterBase::dmaRxEnd(bool finished)
+{
+	index = length - MODM_I2C_DMA_RX->CNDTR;
+	if (not finished) return;
+	MODM_I2C_DMA_RX->CCR = 0;
+	regs()->CR1 = (regs()->CR1 & ~I2C_CR1_RXDMAEN) | I2C_CR1_RXIE;
+	dmaRx = false;
+}
+#endif
+
 void
 I2cMasterBase::hwReset()
 {
+#ifdef MODM_I2C_DMA_RX
+	MODM_I2C_DMA_RX->CCR = 0;
+	dmaRx = false;
+#endif
 	// PE must stay low for three APB clock cycles, the reads ensure that
 	regs()->CR1 = 0;
 	for (int ii = 0; ii < 3; ii++) (void) regs()->CR1;
@@ -146,6 +163,9 @@ I2cMasterBase::isr()
 	I2C_TypeDef *const r = regs();
 	const uint32_t isr = r->ISR;
 	const State before = state;
+#ifdef MODM_I2C_DMA_RX
+	if (dmaRx) dmaRxEnd(isr & (I2C_ISR_TC | I2C_ISR_STOPF | I2C_ISR_NACKF | I2C_ISR_BERR | I2C_ISR_ARLO));
+#endif
 	if (not active)
 	{
 		r->ICR = I2C_ICR_NACKCF | I2C_ICR_STOPCF | I2C_ICR_BERRCF | I2C_ICR_ARLOCF | I2C_ICR_OVRCF;
@@ -290,6 +310,18 @@ I2cMasterBase::segment(I2cTransaction::Starting s)
 	// empty buffers before anything is sent carry no data and are skipped: NBYTES = 0 with
 	// RELOAD at START sets TC, not TCR (measured on STM32F303)
 	while (not reading and not length and next == Operation::Write) fetch(Operation::Write);
+#ifdef MODM_I2C_DMA_RX
+	if (reading and length >= 2 and length <= maxChunk)
+	{
+		MODM_I2C_DMA_RX->CCR = 0;
+		MODM_I2C_DMA_RX->CPAR = uint32_t(&regs()->RXDR);
+		MODM_I2C_DMA_RX->CMAR = uint32_t(rbuf);
+		MODM_I2C_DMA_RX->CNDTR = length;
+		MODM_I2C_DMA_RX->CCR = DMA_CCR_MINC | DMA_CCR_EN;
+		regs()->CR1 = (regs()->CR1 & ~I2C_CR1_RXIE) | I2C_CR1_RXDMAEN;
+		dmaRx = true;
+	}
+#endif
 	regs()->CR2 = (uint32_t(address) & 0xfe) | (reading ? I2C_CR2_RD_WRN : 0) | chunk() | I2C_CR2_START;
 	return true;
 }
