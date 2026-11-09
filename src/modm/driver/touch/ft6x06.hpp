@@ -203,7 +203,7 @@ protected:
 	{
 		using xfer::operator""_desc;
 		command[0] = uint8_t(reg); command[1] = value;
-		return run([&]{ return bus.transfer(xfer, "i w2"_desc, address, command); });
+		return run([&]{ return bus.transfer(xfer, "s w2"_desc, address, command); });
 	}
 
 	/// read multiple 8bit values from a start register: register address, repeated START, read
@@ -212,7 +212,7 @@ protected:
 	{
 		using xfer::operator""_desc;
 		command[0] = uint8_t(reg);
-		return run([&]{ return bus.transfer(xfer, "i w1 r*"_desc, address, command, buffer, size_t(length)); });
+		return run([&]{ return bus.transfer(xfer, "s w1 r*"_desc, address, command, buffer, size_t(length)); });
 	}
 	/// @endcond
 

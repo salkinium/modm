@@ -39,7 +39,7 @@ public:
 	{
 		using xfer::operator""_desc;
 		command[0] = reg;
-		return run([&]{ return bus.transfer(xfer, "i w1 r*"_desc, address, command, values, count); });
+		return run([&]{ return bus.transfer(xfer, "s w1 r*"_desc, address, command, values, count); });
 	}
 
 	bool
@@ -47,7 +47,7 @@ public:
 	{
 		using xfer::operator""_desc;
 		command[0] = reg; command[1] = value;
-		return run([&]{ return bus.transfer(xfer, "i w2"_desc, address, command); });
+		return run([&]{ return bus.transfer(xfer, "s w2"_desc, address, command); });
 	}
 
 	/// The number of touches (0..5) and the first two points.

@@ -21,7 +21,7 @@ modm::Lsm303a::write(uint8_t reg, uint8_t value)
 {
 	using xfer::operator""_desc;
 	command[0] = reg; command[1] = value;
-	return run([&]{ return bus.transfer(xfer, "i w2"_desc, address, command); });
+	return run([&]{ return bus.transfer(xfer, "s w2"_desc, address, command); });
 }
 
 inline bool
@@ -29,7 +29,7 @@ modm::Lsm303a::read(uint8_t reg, uint8_t *buffer, uint8_t length)
 {
 	using xfer::operator""_desc;
 	command[0] = reg;
-	return run([&]{ return bus.transfer(xfer, "i w1 r*"_desc, address, command, buffer, size_t(length)); });
+	return run([&]{ return bus.transfer(xfer, "s w1 r*"_desc, address, command, buffer, size_t(length)); });
 }
 
 // ----------------------------------------------------------------------------

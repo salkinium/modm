@@ -5,10 +5,10 @@
 // (docs/transfer_language.md). This header has no platform dependencies; it is the part that is
 // shared between peripherals and between the host tests and the firmware.
 //
-//   I<hex> i      target address (inline / argument)         W<hex..>  inline write bytes (<= 16)
+//   S<hex> s      START + target address (inline / argument)  W<hex..>  inline write bytes (<= 16)
 //   w<n> w*       write n bytes from a buffer                r<n> r*   read n bytes into a buffer
 //   +             the next write continues the previous one without a repeated START
-//   p             STOP here, the next I/i starts again       t<ms> t*  timeout for what follows
+//   p             STOP here, the next S/s starts again       t<ms> t*  timeout for what follows
 //   c             synchronous callback (interrupt context)   C         asynchronous callback (pause)
 //   [ ... ]<n> ]* repeat the group n times (0: until a callback breaks out)
 //
@@ -91,7 +91,7 @@ struct Segment
 	Callback callback{nullptr};
 	AsyncCallback asyncCallback{nullptr};
 	uint8_t pos{0};            // character offset of the token
-	uint8_t addressPos{0};     // character offset of the I/i that started this segment (an address NACK is reported there)
+	uint8_t addressPos{0};     // character offset of the S/s that started this segment (an address NACK is reported there)
 };
 
 // ---- the parser --------------------------------------------------------------------------------
@@ -152,10 +152,10 @@ constexpr Parsed parse(std::string_view s, Role role = Role::I2cController)
 		bool star = false;
 		switch (c)
 		{
-		case 'I': case 'i': {
-			if (role != Role::I2cController) return fail(at, "I/i only in a controller descriptor");
+		case 'S': case 's': {
+			if (role != Role::I2cController) return fail(at, "S/s only in a controller descriptor");
 			if (join) return fail(at, "+ must be followed by a write");
-			if (c == 'I') { const int v = number(star); if (star || v < 0 || v > 0x7f) return fail(at, "I needs a 7-bit hex address"); }
+			if (c == 'S') { const int v = number(star); if (star || v < 0 || v > 0x7f) return fail(at, "S needs a 7-bit hex address"); }
 			else slot('a');
 			haveAddress = true; lastWrite = false;
 			break;
@@ -224,8 +224,8 @@ constexpr Parsed parse(std::string_view s, Role role = Role::I2cController)
 			if (!bytes) return fail(at, "D needs hex byte pairs");
 			break;
 		}
-		case 's':
-			if (role == Role::I2cController || role == Role::I2cTarget) return fail(at, "s has no meaning on I2C");
+		case '|':
+			if (role == Role::I2cController || role == Role::I2cTarget) return fail(at, "| has no meaning on I2C");
 			break;
 		default:
 			return fail(at, "unknown token");
@@ -325,8 +325,8 @@ constexpr Code compile(std::string_view s)
 		bool star = false;
 		switch (ch)
 		{
-		case 'I': op(ADDR); put(number(star)); break;
-		case 'i': op(ADDRARG); break;
+		case 'S': op(ADDR); put(number(star)); break;
+		case 's': op(ADDRARG); break;
 		case 'W': {
 			data(INLINE); const size_t lenAt = c.size; put(0);
 			int n = 0;
@@ -367,7 +367,7 @@ constexpr Code compile(std::string_view s)
 			op(END_LOOP);
 			break;
 		}
-		case 's': case 'g': break;
+		case '|': case 'g': break;
 		case 'A': case 'D': default: c.ok = false; i = s.size(); break;   // target and UART forms: string path only
 		}
 	}
@@ -408,7 +408,7 @@ struct Transfer
 	uint8_t address{0};
 	bool haveAddress{false}, joinNext{false}, lastWasWrite{false}, afterStop{true};
 	bool pingPending{false};          // an address without data so far: a ping (START, address, STOP)
-	uint8_t addressPos{0};            // character offset of the last I/i token (the ping's position)
+	uint8_t addressPos{0};            // character offset of the last S/s token (the ping's position)
 	uint16_t timeoutMs{0};
 	uint8_t inlineBuf[16]{};
 	uint8_t slotCount{0};
@@ -632,9 +632,9 @@ struct Interpreter
 			const char c = s[t.pc++];
 			switch (c)
 			{
-			case 'I': case 'i':
+			case 'S': case 's':
 				if (t.pingPending) { t.pc = at; return ping(t, seg); }   // two addresses in a row: the first is a ping
-				t.address = (c == 'I') ? uint8_t(hexNumber(t, s)) : uint8_t(t.args[t.arg++] & 0x7f);
+				t.address = (c == 'S') ? uint8_t(hexNumber(t, s)) : uint8_t(t.args[t.arg++] & 0x7f);
 				t.haveAddress = t.pingPending = true; t.afterStop = false; t.addressPos = at;
 				break;
 			case 'A': { bool star; const int v = hexNumberOrStar(t, s, star); t.address = uint8_t(star ? t.args[t.arg++] : v); t.haveAddress = true; break; }
@@ -702,7 +702,7 @@ struct Interpreter
 				break;
 			}
 			case 'D': while (size_t(t.pc) + 1 < s.size() && hexValue(s[t.pc]) >= 0 && hexValue(s[t.pc + 1]) >= 0) t.pc += 2; break;
-			case 's': break;
+			case '|': break;
 			default: break;   // parse() refused anything else
 			}
 		}
@@ -823,14 +823,14 @@ private:
 			{
 			case '+': join = true; break;
 			case 'W': case 'w': return join ? Segment::After::Join : Segment::After::Restart;
-			case 'r': case 'x': case 'I': case 'i': case 'A': return Segment::After::Restart;
+			case 'r': case 'x': case 'S': case 's': case 'A': return Segment::After::Restart;
 			case 'c': case 'C': return Segment::After::Hold;
 			case 'p': return Segment::After::Stop;
 			case ']':   // the group repeats unless this is its last pass
 				if (t.groupForever || t.groupLeft) { i = t.groupPc; join = false; break; }
 				skipNumber(s, i);
 				break;
-			case 't': case 'D': case 's': case 'g': skipNumber(s, i); break;
+			case 't': case 'D': case '|': case 'g': skipNumber(s, i); break;
 			case '[': break;
 			default: return Segment::After::Stop;
 			}
@@ -851,12 +851,12 @@ private:
 			auto star = [&] { if (i < s.size() && s[i] == '*') { i++; return true; } while (i < s.size() && hexValue(s[i]) >= 0) i++; return false; };
 			switch (c)
 			{
-			case 'i': case 'c': case 'C': slots++; break;
+			case 's': case 'c': case 'C': slots++; break;
 			case 'A': case 't': if (star()) slots++; break;
 			case 'w': case 'r': slots += 1 + star(); break;
 			case 'x': slots += 2 + star(); break;
 			case 'W': case 'D': while (i < s.size() && hexValue(s[i]) >= 0) i++; break;
-			case 'I': star(); break;
+			case 'S': star(); break;
 			default: break;
 			}
 		}
@@ -902,7 +902,7 @@ private:
 };
 
 // ---- compile-time descriptors (C++) ------------------------------------------------------------
-// "I2a W01 r*"_desc parses at compile time; transfer() checks the argument count and kinds.
+// "S2a W01 r*"_desc parses at compile time; transfer() checks the argument count and kinds.
 
 template<size_t N>
 struct Literal

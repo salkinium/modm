@@ -26,7 +26,7 @@ namespace modm
  * bool readRegisters(uint8_t reg, uint8_t *buffer, size_t length)
  * {
  *     this->reg = reg;
- *     return run([&]{ return bus.transfer(xfer, "i w1 r*"_desc, address, &this->reg, buffer, length); });
+ *     return run([&]{ return bus.transfer(xfer, "s w1 r*"_desc, address, &this->reg, buffer, length); });
  * }
  * @endcode
  *
@@ -67,7 +67,7 @@ public:
 	ping()
 	{
 		using xfer::operator""_desc;
-		return run([&]{ return bus.transfer(xfer, "i"_desc, address); });
+		return run([&]{ return bus.transfer(xfer, "s"_desc, address); });
 	}
 
 protected:

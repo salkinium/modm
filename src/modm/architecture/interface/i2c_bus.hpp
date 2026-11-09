@@ -55,7 +55,7 @@ public:
 	virtual size_t
 	getErrorIndex() const = 0;
 
-	/// Runs a transfer described by a string: `bus.transfer(xfer, "I19 W20 r06"_desc, buf)`.
+	/// Runs a transfer described by a string: `bus.transfer(xfer, "S19 W20 r06"_desc, buf)`.
 	/// The number and kinds of the arguments are checked against the descriptor at compile
 	/// time. Returns false if the transfer object is still in use (result: Refused).
 	template< class D, class... Args >

@@ -38,7 +38,7 @@ public:
 	{
 		using xfer::operator""_desc;
 		map[0] = reg; map[1] = value;
-		return run([&]{ return bus.transfer(xfer, "i w2"_desc, address, map); });
+		return run([&]{ return bus.transfer(xfer, "s w2"_desc, address, map); });
 	}
 
 	/// Several registers from `reg` on: the MAP byte, then the payload joined to it.
@@ -47,7 +47,7 @@ public:
 	{
 		using xfer::operator""_desc;
 		map[0] = reg | (count > 1 ? Increment : 0);
-		return run([&]{ return bus.transfer(xfer, "i w1 +w*"_desc, address, map, values, count); });
+		return run([&]{ return bus.transfer(xfer, "s w1 +w*"_desc, address, map, values, count); });
 	}
 
 	/// Registers from `reg` on: MAP write, STOP, START, read.
@@ -56,7 +56,7 @@ public:
 	{
 		using xfer::operator""_desc;
 		map[0] = reg | (count > 1 ? Increment : 0);
-		return run([&]{ return bus.transfer(xfer, "i w1 p i r*"_desc, address, map, address, values, count); });
+		return run([&]{ return bus.transfer(xfer, "s w1 p s r*"_desc, address, map, address, values, count); });
 	}
 
 	bool

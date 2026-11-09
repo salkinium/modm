@@ -100,7 +100,7 @@ public:
 		{
 			using xfer::operator""_desc;
 			if (writeSize and readSize)
-				return I2cMaster::bus().transfer(xfer, "i w* r*"_desc, deviceAddress, writeBuffer, writeSize, readBuffer, readSize);
+				return I2cMaster::bus().transfer(xfer, "s w* r*"_desc, deviceAddress, writeBuffer, writeSize, readBuffer, readSize);
 			if (writeSize) return transferWrite(writeBuffer, writeSize);
 			if (readSize) return transferRead(readBuffer, readSize);
 			return transferPing();
@@ -193,19 +193,19 @@ private:
 	transferPing()
 	{
 		using xfer::operator""_desc;
-		return I2cMaster::bus().transfer(xfer, "i"_desc, deviceAddress);
+		return I2cMaster::bus().transfer(xfer, "s"_desc, deviceAddress);
 	}
 	bool
 	transferWrite(const uint8_t *buffer, std::size_t size)
 	{
 		using xfer::operator""_desc;
-		return I2cMaster::bus().transfer(xfer, "i w*"_desc, deviceAddress, buffer, size);
+		return I2cMaster::bus().transfer(xfer, "s w*"_desc, deviceAddress, buffer, size);
 	}
 	bool
 	transferRead(uint8_t *buffer, std::size_t size)
 	{
 		using xfer::operator""_desc;
-		return I2cMaster::bus().transfer(xfer, "i r*"_desc, deviceAddress, buffer, size);
+		return I2cMaster::bus().transfer(xfer, "s r*"_desc, deviceAddress, buffer, size);
 	}
 
 	/// Starts the transfer and waits until finished or the timeout expired.

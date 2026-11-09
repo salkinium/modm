@@ -25,7 +25,7 @@ class I2cBus;
  *
  * @code
  * modm::I2cTransfer<1> xfer;
- * bus.transfer(xfer, "I19 W20 r06"_desc, buffer);   // compile-time checked arguments
+ * bus.transfer(xfer, "S19 W20 r06"_desc, buffer);   // compile-time checked arguments
  * const auto& result = xfer.wait();                  // in a fiber
  * @endcode
  *
