@@ -59,19 +59,19 @@ public:
 	/// The number and kinds of the arguments are checked against the descriptor at compile
 	/// time. Returns false if the transfer object is still in use (result: Refused).
 	template< class D, class... Args >
-		requires requires { D::slots; D::role; }
+		requires requires { D::slots; D::code; }
 	bool
 	transfer(I2cTransferBase &xfer, D descriptor, Args... args)
 	{ return xfer.run(*this, descriptor, args...); }
 
 	/// The same for a descriptor known only at run time (the C API, replays): the string is
-	/// parsed now, `args` are the pointer-sized argument slots in descriptor order. A wrong
+	/// parsed and compiled now into `code` (`capacity` bytes, which must live as long as the
+	/// transfer), `args` are the pointer-sized argument slots in descriptor order. A wrong
 	/// string or count ends the transfer at once with Error::Descriptor and its position.
-#ifndef XFER_NO_STRING
 	bool
-	transfer(I2cTransferBase &xfer, const char *descriptor, const uintptr_t *args, size_t count)
-	{ return xfer.runParsed(*this, descriptor, args, count); }
-#endif
+	transfer(I2cTransferBase &xfer, std::string_view descriptor, const uintptr_t *args, size_t count,
+			 uint8_t *code, size_t capacity)
+	{ return xfer.runCompiled(*this, descriptor, args, count, code, capacity); }
 
 protected:
 	constexpr I2cBus() = default;
@@ -91,9 +91,9 @@ I2cTransferBase::run(I2cBus &b, D descriptor, Args... args)
 	return b.start(*this);
 }
 
-#ifndef XFER_NO_STRING
 inline bool
-I2cTransferBase::runParsed(I2cBus &b, const char *descriptor, const uintptr_t *args, size_t count)
+I2cTransferBase::runCompiled(I2cBus &b, std::string_view descriptor, const uintptr_t *args, size_t count,
+							 uint8_t *code, size_t capacity)
 {
 	if (t.busy) return false;
 	if (count > t.slotCount)
@@ -102,9 +102,8 @@ I2cTransferBase::runParsed(I2cBus &b, const char *descriptor, const uintptr_t *a
 		return false;
 	}
 	for (size_t ii = 0; ii < count; ii++) t.args[ii] = args[ii];
-	if (not xfer::Interpreter::begin(t, descriptor, xfer::Role::I2cController, count)) return false;
+	if (not xfer::Interpreter::begin(t, descriptor, count, code, capacity)) return false;
 	return b.start(*this);
 }
-#endif
 
 }	// namespace modm

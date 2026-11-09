@@ -97,10 +97,9 @@ private:
 	bool
 	run(I2cBus &bus, D descriptor, Args... args);
 
-#ifndef XFER_NO_STRING
 	bool
-	runParsed(I2cBus &bus, const char *descriptor, const uintptr_t *args, size_t count);
-#endif
+	runCompiled(I2cBus &bus, std::string_view descriptor, const uintptr_t *args, size_t count,
+				uint8_t *code, size_t capacity);
 };
 
 /// A transfer with `Slots` argument slots (the number the descriptor takes) and room for

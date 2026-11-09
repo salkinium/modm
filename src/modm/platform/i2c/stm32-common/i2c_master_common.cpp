@@ -48,6 +48,7 @@ I2cMasterCommon::attach(I2cTransferBase &x)
 	if (x.configuration and x.configuration != configuration) { configuration = x.configuration; configuration(); }
 	client = &x;
 	prefetched = served = false;
+	seg = nullptr;
 	return Attach::Now;
 }
 
@@ -66,6 +67,7 @@ I2cMasterCommon::takeNext()
 		if (n->configuration and n->configuration != configuration) { configuration = n->configuration; configuration(); }
 		client = n;
 		prefetched = served = false;
+		seg = nullptr;
 		preferTransfer = false;
 		return true;
 	}
@@ -127,8 +129,8 @@ I2cMasterCommon::detachAll()
 		client = nullptr;
 		if (not x->t.result.done)
 		{
-			if (served) xfer::Interpreter::dataDone(x->t, seg, xfer::Error::Aborted, uint16_t(errorIndex));
-			if (not x->t.result.done) xfer::Interpreter::fail(x->t, xfer::Error::Aborted, seg.pos);
+			if (served and seg) xfer::Interpreter::dataDone(x->t, *seg, xfer::Error::Aborted, uint16_t(errorIndex));
+			if (not x->t.result.done) xfer::Interpreter::fail(x->t, xfer::Error::Aborted, seg ? seg->pos : 0);
 		}
 	}
 }
@@ -143,8 +145,8 @@ I2cMasterCommon::nextData(bool busHeld)
 	xfer::Transfer &t = client->t;
 	for (;;)
 	{
-		const xfer::Segment s = [&] { MODM_I2C_PROFILE_SCOPE(NextData); return xfer::Interpreter::nextData(t); }();	// runs the callbacks itself
-		switch (s.kind)
+		const xfer::Segment *s = [&] { MODM_I2C_PROFILE_SCOPE(NextData); return xfer::Interpreter::nextData(t, scratch); }();	// runs the callbacks itself
+		switch (s->kind)
 		{
 			case xfer::Segment::Kind::Data:
 				seg = s; served = false;
@@ -153,7 +155,7 @@ I2cMasterCommon::nextData(bool busHeld)
 				if (busHeld) return false;
 				break;
 			case xfer::Segment::Kind::Pause:		// not supported
-				xfer::Interpreter::fail(t, xfer::Error::Internal, s.pos);
+				xfer::Interpreter::fail(t, xfer::Error::Internal, s->pos);
 				return false;
 			case xfer::Segment::Kind::Finished:	// a callback ended the transfer, its completion ran
 				return false;
@@ -167,11 +169,11 @@ I2cMasterCommon::nextData(bool busHeld)
 	}
 }
 
-// the segment handed to the state machine ended without an error
+// the segment handed to the state machine ended without an error (the last one finishes the transfer)
 void
 I2cMasterCommon::doneData()
 {
-	if (served) { MODM_I2C_PROFILE_SCOPE(DataDone); xfer::Interpreter::dataDone(client->t, seg, xfer::Error::None, 0); served = false; }
+	if (served) { MODM_I2C_PROFILE_SCOPE(DataDone); xfer::Interpreter::dataDone(client->t, *seg, xfer::Error::None, 0); served = false; }
 }
 
 // the state machine ended the client's attach: report, and go on if the client has more
@@ -184,12 +186,12 @@ I2cMasterCommon::continueTransfer(DetachCause cause)
 	if (cause == DetachCause::NormalStop)
 	{
 		doneData();
-		more = nextData(false);	// after p: the next segment starts with a fresh START
+		more = not t.result.done and nextData(false);	// after p: the next segment starts with a fresh START
 	}
 	else
 	{
 		served = false;
-		more = [&] { MODM_I2C_PROFILE_SCOPE(DataDone); return xfer::Interpreter::dataDone(t, seg, map(error), uint16_t(errorIndex)); }()
+		more = [&] { MODM_I2C_PROFILE_SCOPE(DataDone); return xfer::Interpreter::dataDone(t, *seg, map(error), uint16_t(errorIndex)); }()
 			   and nextData(false);	// a callback polls an address NACK
 	}
 	prefetched = more;
@@ -208,12 +210,13 @@ I2cMasterCommon::starting()
 		if (client->t.result.done or not nextData(true))
 			return I2cTransaction::Starting(0, OperationAfterStart::End);
 	}
-	if (not seg.read and seg.length == 0)	// a ping: START, address, STOP
+	const xfer::Segment &s = *seg;
+	if (not s.read and s.length == 0)	// a ping: START, address, STOP
 	{
 		served = true;
-		return I2cTransaction::Starting(seg.address << 1, OperationAfterStart::Stop);
+		return I2cTransaction::Starting(s.address << 1, OperationAfterStart::Stop);
 	}
-	return I2cTransaction::Starting(seg.address << 1, seg.read ? OperationAfterStart::Read : OperationAfterStart::Write);
+	return I2cTransaction::Starting(s.address << 1, s.read ? OperationAfterStart::Read : OperationAfterStart::Write);
 }
 
 xfer::Error
@@ -248,9 +251,10 @@ I2cMasterCommon::fetch(Operation op)
 		}
 		if (op == Operation::Stop) { reading = false; wbuf = nullptr; length = 0; next = Operation::Stop; return true; }
 		served = true;
-		reading = seg.read; length = seg.length;
-		if (reading) rbuf = seg.rbuf; else wbuf = seg.wbuf;
-		next = (seg.after == A::Join) ? Operation::Write : (seg.after == A::Stop) ? Operation::Stop : Operation::Restart;
+		const xfer::Segment &s = *seg;
+		reading = s.read; length = s.length;
+		if (reading) rbuf = s.rbuf; else wbuf = s.wbuf;	// one union: only the one for the direction
+		next = (s.after == A::Join) ? Operation::Write : (s.after == A::Stop) ? Operation::Stop : Operation::Restart;
 		return not reading or length > 0;
 	}
 	if (op == Operation::Read)

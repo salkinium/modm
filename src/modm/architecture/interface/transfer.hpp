@@ -12,6 +12,9 @@
 //   c             synchronous callback (interrupt context)   C         asynchronous callback (pause)
 //   [ ... ]<n> ]* repeat the group n times (0: until a callback breaks out)
 //
+// A descriptor is checked by parse() and compiled to bytecode by bytecode::compile(), both
+// constexpr: a "..."_desc literal does it at compile time, Interpreter::begin(t, string, ...)
+// at run time into a buffer of the caller (a C API, a debug shell, descriptors received as data).
 // The engine (the peripheral driver) asks the Interpreter for one Segment at a time: a data
 // segment with its address, direction, buffer, length and what follows it (STOP, repeated START,
 // a joined write, or undecided because a callback comes first), a callback to run, a pause, or
@@ -81,17 +84,21 @@ struct Segment
 
 	Kind kind{Kind::Done};
 	uint8_t address{0};        // 7-bit
-	bool read{false};
-	bool start{true};          // this segment begins with START or repeated START (false: joined write)
 	After after{After::Stop};
-	uint16_t length{0};
-	uint16_t timeoutMs{0};     // 0: none
-	const uint8_t* wbuf{nullptr};
-	uint8_t* rbuf{nullptr};
-	Callback callback{nullptr};
-	AsyncCallback asyncCallback{nullptr};
+	bool read : 1 {false};
+	bool start : 1 {true};     // this segment begins with START or repeated START (false: joined write)
+	bool last : 1 {false};     // the transfer's last segment: dataDone() without an error finishes the transfer
 	uint8_t pos{0};            // character offset of the token
 	uint8_t addressPos{0};     // character offset of the S/s that started this segment (an address NACK is reported there)
+	uint16_t length{0};
+	uint16_t timeoutMs{0};     // 0: none
+	union                      // one pointer: what the segment's kind needs
+	{
+		const uint8_t* wbuf{nullptr};
+		uint8_t* rbuf;
+		Callback callback;
+		AsyncCallback asyncCallback;
+	};
 };
 
 // ---- the parser --------------------------------------------------------------------------------
@@ -136,12 +143,15 @@ constexpr Parsed parse(std::string_view s, Role role = Role::I2cController)
 	};
 	bool join = false, inGroup = false, haveAddress = false, lastWrite = false, anyData = false;
 	size_t groupStart = 0;
+	bool groupYields = false;   // the group holds an address, data, p, c or C
 	size_t i = 0;
+	auto yields = [&](char c) { return c == 'S' || c == 's' || c == 'W' || c == 'w' || c == 'r' || c == 'x' || c == 'p' || c == 'c' || c == 'C' || c == 'A'; };
 	while (i < s.size())
 	{
 		const char c = s[i];
 		if (isSep(c)) { i++; continue; }
 		const size_t at = i++;
+		if (yields(c)) groupYields = true;
 		auto number = [&](bool& star) -> int {   // <hex> or *
 			star = false;
 			if (i < s.size() && s[i] == '*') { i++; star = true; return 0; }
@@ -205,13 +215,14 @@ constexpr Parsed parse(std::string_view s, Role role = Role::I2cController)
 		case '[':
 			if (inGroup) return fail(at, "groups do not nest");
 			if (join) return fail(at, "+ must be followed by a write");
-			inGroup = true; groupStart = at; p.hasLoop = true;
+			inGroup = true; groupStart = at; p.hasLoop = true; groupYields = false;
 			lastWrite = false;   // a join cannot cross the [: on the next pass it would follow the group's last token
 			break;
 		case ']': {
 			if (!inGroup) return fail(at, "] without [");
 			if (join) return fail(at, "+ must be followed by a write");
 			const int v = number(star);
+			if (!star && v == 0 && !groupYields) return fail(at, "a group repeated for ever needs a token that reaches the bus or a callback");
 			if (star) slot('n'); else if (v < 0) return fail(at, "] needs a count or *");
 			inGroup = false;
 			lastWrite = false;   // a join cannot cross the ] either: a callback may leave the group after a read
@@ -259,6 +270,7 @@ struct Code
 	uint8_t size{0};
 	bool ok{true};
 };
+struct Compiled { size_t size; bool ok; };   // ok false: does not fit, or a token without a bytecode form
 
 // the index of the op after the one at i
 constexpr size_t skipOp(const uint8_t* code, size_t i)
@@ -301,12 +313,14 @@ constexpr uint8_t afterOf(const uint8_t* code, size_t i, size_t bodyStart, bool 
 	return A_RESTART;
 }
 
-constexpr Code compile(std::string_view s)
+// Compiles a descriptor that parse() accepted into 'out'. Only the I2C controller form has a
+// bytecode (and an engine) so far; target, UART and SPI tokens make it fail.
+constexpr Compiled compile(std::string_view s, uint8_t* out, size_t capacity)
 {
-	Code c;
+	struct { uint8_t* bytes; size_t size; bool ok; } c{out, 0, true};
 	size_t at = 0;
 	int loopAt = -1;   // where the current group's LOOP header is (groups do not nest)
-	auto put = [&](int b) { if (c.size < sizeof(c.bytes)) c.bytes[c.size++] = uint8_t(b); else c.ok = false; };
+	auto put = [&](int b) { if (c.size < capacity) c.bytes[c.size++] = uint8_t(b); else c.ok = false; };
 	auto op = [&](int o) { put(o); put(int(at)); };   // every op carries its character position
 	auto data = [&](int o) { op(o); put(0); };         // data ops: the 'after' byte, filled in below
 	size_t i = 0;
@@ -340,7 +354,7 @@ constexpr Code compile(std::string_view s)
 			else { data(ch == 'w' ? WRITE : READ); put(v); }
 			break;
 		}
-		case 'x': { bool st; number(st); c.ok = false; break; }   // SPI exchange: not in the bytecode form yet
+		case 'x': { bool st; number(st); c.ok = false; break; }   // SPI exchange: no bytecode form (no engine) yet
 		case '+': op(JOIN); break;
 		case 'p': op(STOP); break;
 		case 'c': op(CALL); break;
@@ -368,12 +382,12 @@ constexpr Code compile(std::string_view s)
 			break;
 		}
 		case '|': case 'g': break;
-		case 'A': case 'D': default: c.ok = false; i = s.size(); break;   // target and UART forms: string path only
+		case 'A': case 'D': default: c.ok = false; i = s.size(); break;   // target and UART forms: no bytecode (no engine) yet
 		}
 	}
 	at = s.size();
 	op(END);
-	if (!c.ok) return c;
+	if (!c.ok) return {c.size, false};
 	// the 'after' of every data op, for a group pass that ends and for one that repeats
 	size_t body = 0;
 	for (size_t j = 0; j < c.size; j = skipOp(c.bytes, j))
@@ -382,6 +396,13 @@ constexpr Code compile(std::string_view s)
 		else if (c.bytes[j] == END_LOOP) body = 0;
 		else if (isData(c.bytes[j])) c.bytes[j + 2] = uint8_t(afterOf(c.bytes, j, body, false) | afterOf(c.bytes, j, body, true) << 2);
 	}
+	return {c.size, true};
+}
+constexpr Code compile(std::string_view s)
+{
+	Code c;
+	const Compiled r = compile(s, c.bytes, sizeof(c.bytes));
+	c.size = uint8_t(r.size); c.ok = r.ok;
 	return c;
 }
 }  // namespace bytecode
@@ -391,29 +412,27 @@ constexpr Code compile(std::string_view s)
 
 struct Transfer
 {
-	const char* descriptor{nullptr};
-	const uint8_t* code{nullptr};     // the bytecode form, when the descriptor was compiled at compile time
+	const uint8_t* code{nullptr};     // the descriptor's bytecode
 	Transfer* next{nullptr};          // intrusive queue link
 	Completion completion{nullptr};
 	void* context{nullptr};           // for the owner
 	Result result{};
 	Error abortError{Error::Aborted}; // what Action::Abort reports
-	Role role{Role::I2cController};
 	// interpreter state
-	uint8_t pc{0};                    // character offset of the next token
+	uint8_t pc{0};                    // offset of the next op
 	uint8_t arg{0};                   // next argument slot
 	uint8_t groupPc{0}, groupArg{0};  // where the group started
 	uint16_t groupLeft{0};            // iterations left after the current one
-	bool inGroup{false}, groupForever{false};
+	bool inGroup : 1 {false};
+	bool groupForever : 1 {false};
+	bool joinNext : 1 {false};
+	bool pingPending : 1 {false};     // an address without data so far: a ping (START, address, STOP)
 	uint8_t address{0};
-	bool haveAddress{false}, joinNext{false}, lastWasWrite{false}, afterStop{true};
-	bool pingPending{false};          // an address without data so far: a ping (START, address, STOP)
 	uint8_t addressPos{0};            // character offset of the last S/s token (the ping's position)
 	uint16_t timeoutMs{0};
-	uint8_t inlineBuf[16]{};
 	uint8_t slotCount{0};
 	uintptr_t* args{nullptr};
-	// segments prepared in thread context by begin() for descriptors without loops or callbacks:
+	// segments prepared in thread context by begin() for descriptors without callbacks:
 	// the interrupt then copies a struct instead of running the interpreter (TransferN<Slots, Prepared>)
 	Segment* pre{nullptr};
 	uint8_t preCapacity{0}, preCount{0}, preIndex{0};
@@ -443,53 +462,45 @@ struct TransferN : Transfer
 
 struct Interpreter
 {
-	// Prepares a transfer: parses, binds the arguments (already in t.args), resets the state.
-	// Returns false with result.error = Descriptor or Refused.
-#ifndef XFER_NO_STRING
-	static bool begin(Transfer& t, const char* descriptor, Role role, size_t argsGiven)
+	// Starts a transfer from bytecode; the arguments are already in t.args. 'straight' (no
+	// callbacks): the segments are prepared now, in thread context, when they fit. Returns false
+	// when the transfer is still busy (Refused: the running result is not touched) or the
+	// arguments do not fit (result.error = Descriptor).
+	static bool begin(Transfer& t, const uint8_t* code, size_t slots, bool straight)
 	{
-		if (t.busy) return false;   // Refused: the running transfer's result is not touched
-		const Parsed p = parse(descriptor, role);
-		t.result = {};
-		if (!p.ok || p.slots != argsGiven || p.slots > t.slotCount)
-		{
-			t.result.error = Error::Descriptor;
-			t.result.pos = p.ok ? uint8_t(std::string_view(descriptor).size()) : p.pos;
-			t.result.done = true;
-			return false;
-		}
-		t.descriptor = descriptor; t.code = nullptr; t.role = role;
-		reset(t);
-		t.busy = true;
-		if (!p.hasLoop && !p.hasCallback) prepare(t);
-		return true;
-	}
-#endif
-
-	// The same for a descriptor checked at compile time: no parse at run time, the slot count is
-	// known; with 'code' the bytecode form runs instead of the string.
-	static bool beginChecked(Transfer& t, const char* descriptor, Role role, size_t slots, const uint8_t* code = nullptr, bool straight = false)
-	{
-		if (t.busy) return false;   // Refused: the running transfer's result is not touched
-		if (slots > t.slotCount) { t.result = {}; t.result.error = Error::Descriptor; t.result.done = true; return false; }
-		t.descriptor = descriptor; t.code = code; t.role = role;
+		if (t.busy) return false;
+		if (slots > t.slotCount) return refuse(t, 0);
+		t.code = code;
 		t.result = {};
 		reset(t);
 		t.busy = true;
 		if (straight) prepare(t);
 		return true;
 	}
+	// a "..."_desc descriptor: checked and compiled at compile time
 	template<typename D>
-	static bool begin(Transfer& t, D d)
+	static bool begin(Transfer& t, D)
 	{
-		return beginChecked(t, d.c_str(), D::role, D::slots, D::code.data(), !D::parsed.hasLoop && !D::parsed.hasCallback);
+		return begin(t, D::code.data(), D::slots, !D::parsed.hasCallback);
+	}
+	// A descriptor known only at run time: parse() checks it and the argument count, compile()
+	// writes its bytecode into 'code', which must live as long as the transfer. On a bad descriptor
+	// result.error is Descriptor and result.pos the character where parse() stopped.
+	static bool begin(Transfer& t, std::string_view descriptor, size_t argsGiven, uint8_t* code, size_t capacity)
+	{
+		if (t.busy) return false;   // before touching 'code': the running transfer may use it
+		const Parsed p = parse(descriptor);
+		if (!p.ok) return refuse(t, p.pos);
+		if (p.slots != argsGiven) return refuse(t, uint8_t(descriptor.size()));
+		if (!bytecode::compile(descriptor, code, capacity).ok) return refuse(t, uint8_t(descriptor.size()));
+		return begin(t, code, p.slots, !p.hasCallback);
 	}
 
 	static void reset(Transfer& t)
 	{
 		t.pc = t.arg = t.groupPc = t.groupArg = 0; t.groupLeft = 0;
 		t.inGroup = t.groupForever = false;
-		t.haveAddress = t.joinNext = t.lastWasWrite = t.pingPending = false; t.afterStop = true;
+		t.joinNext = t.pingPending = false;
 		t.timeoutMs = 0;
 		t.preCount = t.preIndex = 0;
 	}
@@ -505,10 +516,10 @@ struct Interpreter
 		{
 			Segment seg = step(t);
 			if (seg.kind == Segment::Kind::Done) break;
-			if (n == t.preCapacity || seg.kind != Segment::Kind::Data && seg.kind != Segment::Kind::Stop) { reset(t); return; }   // does not fit: interpret in the interrupt
-			if (seg.kind == Segment::Kind::Data && !seg.read && seg.wbuf == t.inlineBuf) { reset(t); return; }   // inline bytes of the string form live in one buffer: not prepared
+			if (n == t.preCapacity || (seg.kind != Segment::Kind::Data && seg.kind != Segment::Kind::Stop)) { reset(t); return; }   // does not fit: interpret in the interrupt
 			t.pre[n++] = seg;
 		}
+		if (n && t.pre[n - 1].kind == Segment::Kind::Data && t.pre[n - 1].after == Segment::After::Stop) t.pre[n - 1].last = true;
 		t.preCount = n;
 		t.preIndex = 0;
 	}
@@ -516,39 +527,34 @@ struct Interpreter
 	// The next data segment for an engine that does not want to see callbacks: Callback segments are
 	// executed here, so only Data, Stop, Pause, Done and Finished come back. Finished means a callback
 	// ended the transfer (the completion has run): the engine releases the bus and calls nothing else.
-	static Segment nextData(Transfer& t)
+	// The same without copies: a pointer into the prepared segments, or to 'scratch' (the engine's)
+	// when the interpreter runs. Valid until the next call.
+	static const Segment* nextData(Transfer& t, Segment& scratch)
 	{
 		for (;;)
 		{
-			Segment seg = next(t);
-			if (seg.kind != Segment::Kind::Callback) return seg;
-			if (!act(t, seg.callback(t))) { seg.kind = Segment::Kind::Finished; return seg; }
+			const Segment* seg = next(t, scratch);
+			if (seg->kind != Segment::Kind::Callback) return seg;
+			if (!act(t, seg->callback(t))) { scratch.kind = Segment::Kind::Finished; return &scratch; }   // callbacks are never prepared: seg is scratch
 		}
 	}
-
-	static Segment next(Transfer& t)
+	static const Segment* next(Transfer& t, Segment& scratch)
 	{
 		if (t.preCount)
 		{
-			if (t.preIndex < t.preCount) return t.pre[t.preIndex++];
-			Segment seg; seg.kind = Segment::Kind::Done; return seg;
+			if (t.preIndex < t.preCount) return &t.pre[t.preIndex++];
+			scratch = Segment{}; return &scratch;   // Done
 		}
-		return step(t);
+		scratch = step(t);
+		return &scratch;
 	}
 
-	// one step of the interpreter proper, in either form
+	// by value, for tests and simple engines
+	static Segment nextData(Transfer& t) { Segment s; return *nextData(t, s); }
+	static Segment next(Transfer& t) { Segment s; return *next(t, s); }
+
+	// one step of the interpreter proper
 	static Segment step(Transfer& t)
-	{
-		if (t.code) return nextCode(t);
-#ifndef XFER_NO_STRING
-		return nextString(t);
-#else
-		Segment seg; seg.kind = Segment::Kind::Done; return seg;
-#endif
-	}
-
-	// ---- the bytecode form
-	static Segment nextCode(Transfer& t)
 	{
 		using namespace bytecode;
 		Segment seg;
@@ -558,7 +564,9 @@ struct Interpreter
 			const uint8_t op = code[t.pc];
 			const uint8_t at = code[t.pc + 1];   // the token's character position
 			if (t.pingPending && op != INLINE && op != WRITE && op != WRITEARG && op != READ && op != READARG && op != TIMEOUT && op != TIMEOUTARG)
-				return ping(t, seg);
+			{
+				ping(t, seg); seg.last = op == END; return seg;
+			}
 			t.pc += 2;
 			switch (op)
 			{
@@ -570,7 +578,8 @@ struct Interpreter
 				seg.after = afterFrom(t, code[t.pc++]);
 				seg.length = code[t.pc++];
 				seg.wbuf = code + t.pc; t.pc += seg.length;
-				t.joinNext = false; t.pingPending = false; return seg;
+				t.joinNext = false; t.pingPending = false;
+				seg.last = code[t.pc] == END && seg.after == Segment::After::Stop; return seg;
 			}
 			case WRITE: case READ: case WRITEARG: case READARG:
 				seg.kind = Segment::Kind::Data; seg.pos = at; seg.addressPos = t.addressPos; seg.address = t.address;
@@ -578,7 +587,8 @@ struct Interpreter
 				seg.after = afterFrom(t, code[t.pc++]);
 				if (seg.read) seg.rbuf = reinterpret_cast<uint8_t*>(t.args[t.arg++]); else seg.wbuf = reinterpret_cast<const uint8_t*>(t.args[t.arg++]);
 				seg.length = (op == WRITE || op == READ) ? code[t.pc++] : uint16_t(t.args[t.arg++]);
-				t.joinNext = false; t.pingPending = false; return seg;
+				t.joinNext = false; t.pingPending = false;
+				seg.last = code[t.pc] == END && seg.after == Segment::After::Stop; return seg;
 			case JOIN: t.joinNext = true; break;
 			case STOP: seg.kind = Segment::Kind::Stop; seg.pos = at; return seg;
 			case CALL: seg.kind = Segment::Kind::Callback; seg.pos = at; seg.callback = reinterpret_cast<Callback>(t.args[t.arg++]); return seg;
@@ -611,111 +621,17 @@ struct Interpreter
 	}
 	static bool countIsArgument(const Transfer& t) { return t.code[t.groupPc - 3] == 0 && t.code[t.groupPc - 2] == 0; }
 
-#ifndef XFER_NO_STRING
-	// ---- the string form
-	// The next step for the engine. Data segments carry 'after': what the engine does when the
-	// bytes are done (STOP, repeated START, joined write, or hold the bus and ask again).
-	static Segment nextString(Transfer& t)
-	{
-		Segment seg;
-		std::string_view s(t.descriptor);
-		for (;;)
-		{
-			skipSeps(t, s);
-			if (t.pc >= s.size())
-			{
-				if (t.pingPending) return ping(t, seg);
-				seg.kind = Segment::Kind::Done;
-				return seg;
-			}
-			const uint8_t at = t.pc;
-			const char c = s[t.pc++];
-			switch (c)
-			{
-			case 'S': case 's':
-				if (t.pingPending) { t.pc = at; return ping(t, seg); }   // two addresses in a row: the first is a ping
-				t.address = (c == 'S') ? uint8_t(hexNumber(t, s)) : uint8_t(t.args[t.arg++] & 0x7f);
-				t.haveAddress = t.pingPending = true; t.afterStop = false; t.addressPos = at;
-				break;
-			case 'A': { bool star; const int v = hexNumberOrStar(t, s, star); t.address = uint8_t(star ? t.args[t.arg++] : v); t.haveAddress = true; break; }
-			case 'g': break;
-			case 'W': {
-				seg.kind = Segment::Kind::Data; seg.pos = at; seg.addressPos = t.addressPos; seg.address = t.address; seg.read = false;
-				seg.start = !t.joinNext; seg.timeoutMs = t.timeoutMs;
-				uint16_t n = 0;
-				while (size_t(t.pc) + 1 < s.size() && hexValue(s[t.pc]) >= 0 && hexValue(s[t.pc + 1]) >= 0 && n < sizeof(t.inlineBuf))
-				{
-					t.inlineBuf[n++] = uint8_t(hexValue(s[t.pc]) << 4 | hexValue(s[t.pc + 1]));
-					t.pc += 2;
-				}
-				seg.wbuf = t.inlineBuf; seg.length = n;
-				t.joinNext = false; t.lastWasWrite = true; t.pingPending = false;
-				seg.after = lookahead(t, s);
-				return seg;
-			}
-			case 'w': case 'r': case 'x': {
-				seg.kind = Segment::Kind::Data; seg.pos = at; seg.addressPos = t.addressPos; seg.address = t.address; seg.read = (c == 'r');
-				seg.start = !t.joinNext; seg.timeoutMs = t.timeoutMs;
-				bool star; const int v = hexNumberOrStar(t, s, star);
-				if (c == 'r') seg.rbuf = reinterpret_cast<uint8_t*>(t.args[t.arg++]);
-				else seg.wbuf = reinterpret_cast<const uint8_t*>(t.args[t.arg++]);
-				if (c == 'x') seg.rbuf = reinterpret_cast<uint8_t*>(t.args[t.arg++]);
-				seg.length = uint16_t(star ? t.args[t.arg++] : v);
-				t.joinNext = false; t.lastWasWrite = (c == 'w'); t.pingPending = false;
-				seg.after = lookahead(t, s);
-				return seg;
-			}
-			case '+': t.joinNext = true; break;
-			case 'p':
-				if (t.pingPending) { t.pc = at; return ping(t, seg); }
-				t.haveAddress = false; t.afterStop = true;
-				seg.kind = Segment::Kind::Stop; seg.pos = at;   // the engine generates the STOP if the bus is still held
-				return seg;
-			case 'c':
-				if (t.pingPending) { t.pc = at; return ping(t, seg); }   // the ping comes before the callback
-				seg.kind = Segment::Kind::Callback; seg.pos = at;
-				seg.callback = reinterpret_cast<Callback>(t.args[t.arg++]);
-				return seg;
-			case 'C':
-				if (t.pingPending) { t.pc = at; return ping(t, seg); }
-				seg.kind = Segment::Kind::Pause; seg.pos = at;
-				seg.asyncCallback = reinterpret_cast<AsyncCallback>(t.args[t.arg++]);
-				return seg;
-			case 't': { bool star; const int v = hexNumberOrStar(t, s, star); t.timeoutMs = uint16_t(star ? t.args[t.arg++] : v); break; }
-			case '[': {
-				if (t.pingPending) { t.pc = at; return ping(t, seg); }
-				t.inGroup = true; t.groupPc = t.pc; t.groupArg = t.arg;
-				const uint16_t count = groupCount(t, s);   // the count is read at the [, so every lookahead knows it
-				t.groupForever = (count == 0);
-				t.groupLeft = count ? count - 1 : 0;
-				break;
-			}
-			case ']': {
-				if (t.pingPending) { t.pc = at; return ping(t, seg); }
-				bool star; hexNumberOrStar(t, s, star);
-				if (t.groupForever || t.groupLeft)
-				{
-					if (!t.groupForever) t.groupLeft--;
-					t.pc = t.groupPc; t.arg = t.groupArg;   // the group's arguments are reused
-				}
-				else { if (star) t.arg++; t.inGroup = false; }
-				break;
-			}
-			case 'D': while (size_t(t.pc) + 1 < s.size() && hexValue(s[t.pc]) >= 0 && hexValue(s[t.pc + 1]) >= 0) t.pc += 2; break;
-			case '|': break;
-			default: break;   // parse() refused anything else
-			}
-		}
-	}
-
-#endif  // XFER_NO_STRING
 
 	// The engine reports a finished data segment (ok, or with the error at byte 'index').
 	// Returns true when the transfer goes on (the engine then calls next()).
 	static bool dataDone(Transfer& t, const Segment& seg, Error error, uint16_t index)
 	{
-		t.result.count += (error == Error::None) ? seg.length : index;
-		if (error == Error::None) return true;
+		if (error == Error::None)
+		{
+			t.result.count += seg.length;
+			return seg.last ? finish(t) : true;
+		}
+		t.result.count += index;
 		t.result.error = error; t.result.pos = (error == Error::AddressNack) ? seg.addressPos : seg.pos; t.result.index = index;
 		// an address NACK inside a group may be polled by a callback: the next token decides
 		if (error == Error::AddressNack && peekIsCallback(t)) return true;
@@ -734,14 +650,11 @@ struct Interpreter
 		case Action::Repeat:
 			t.result.error = Error::None;
 			if (t.inGroup) { t.pc = t.groupPc; t.arg = t.groupArg; }
-			else { t.pc = 0; t.arg = 0; t.haveAddress = false; }
+			else { t.pc = 0; t.arg = 0; }
 			return true;
 		case Action::Break:
 			t.result.error = Error::None;
 			if (!t.inGroup) return finish(t);   // outside a group the whole string is the group
-#ifndef XFER_NO_STRING
-			if (!t.code) skipToGroupEnd(t); else
-#endif
 			skipToLoopEnd(t);
 			t.inGroup = false;
 			return true;
@@ -794,111 +707,16 @@ private:
 		t.pingPending = false;
 		return seg;
 	}
-#ifndef XFER_NO_STRING
-	static void skipSeps(Transfer& t, std::string_view s) { while (t.pc < s.size() && isSep(s[t.pc])) t.pc++; }
-	static int hexNumber(Transfer& t, std::string_view s)
-	{
-		int v = 0, digits = 0;
-		while (t.pc < s.size() && hexValue(s[t.pc]) >= 0 && digits < 4) { v = v * 16 + hexValue(s[t.pc]); t.pc++; digits++; }
-		return v;
-	}
-	static int hexNumberOrStar(Transfer& t, std::string_view s, bool& star)
-	{
-		star = (t.pc < s.size() && s[t.pc] == '*');
-		if (star) { t.pc++; return 0; }
-		return hexNumber(t, s);
-	}
-	// What follows the data token at t.pc, without moving: a joined write, another data token
-	// (repeated START), a callback (hold), the end or p (STOP). Inside a group the ] may jump back.
-	static Segment::After lookahead(Transfer& t, std::string_view s)
-	{
-		size_t i = t.pc;
-		bool join = false;
-		for (;;)
-		{
-			while (i < s.size() && isSep(s[i])) i++;
-			if (i >= s.size()) return Segment::After::Stop;
-			const char c = s[i++];
-			switch (c)
-			{
-			case '+': join = true; break;
-			case 'W': case 'w': return join ? Segment::After::Join : Segment::After::Restart;
-			case 'r': case 'x': case 'S': case 's': case 'A': return Segment::After::Restart;
-			case 'c': case 'C': return Segment::After::Hold;
-			case 'p': return Segment::After::Stop;
-			case ']':   // the group repeats unless this is its last pass
-				if (t.groupForever || t.groupLeft) { i = t.groupPc; join = false; break; }
-				skipNumber(s, i);
-				break;
-			case 't': case 'D': case '|': case 'g': skipNumber(s, i); break;
-			case '[': break;
-			default: return Segment::After::Stop;
-			}
-		}
-	}
-	static void skipNumber(std::string_view s, size_t& i)
-	{
-		if (i < s.size() && s[i] == '*') { i++; return; }
-		while (i < s.size() && hexValue(s[i]) >= 0) i++;
-	}
-	// Argument slots used by the tokens from i up to the ] (i is moved there)
-	static uint8_t slotsUntilGroupEnd(std::string_view s, size_t& i)
-	{
-		uint8_t slots = 0;
-		while (i < s.size() && s[i] != ']')
-		{
-			const char c = s[i++];
-			auto star = [&] { if (i < s.size() && s[i] == '*') { i++; return true; } while (i < s.size() && hexValue(s[i]) >= 0) i++; return false; };
-			switch (c)
-			{
-			case 's': case 'c': case 'C': slots++; break;
-			case 'A': case 't': if (star()) slots++; break;
-			case 'w': case 'r': slots += 1 + star(); break;
-			case 'x': slots += 2 + star(); break;
-			case 'W': case 'D': while (i < s.size() && hexValue(s[i]) >= 0) i++; break;
-			case 'S': star(); break;
-			default: break;
-			}
-		}
-		return slots;
-	}
-	// The count of the group that starts at t.pc: hex after the ], or the argument slot that
-	// follows the group's own slots (the count argument comes last, left to right)
-	static uint16_t groupCount(Transfer& t, std::string_view s)
-	{
-		size_t i = t.pc;
-		const uint8_t slots = slotsUntilGroupEnd(s, i);
-		if (i >= s.size()) return 1;
-		i++;
-		if (i < s.size() && s[i] == '*') return uint16_t(t.args[t.arg + slots]);
-		int v = 0;
-		while (i < s.size() && hexValue(s[i]) >= 0) { v = v * 16 + hexValue(s[i]); i++; }
-		return uint16_t(v);
-	}
-#endif
 	static bool peekIsCallback(Transfer& t)
 	{
 		if (t.preCount) return false;   // prepared segments never hold callbacks
-		if (t.code) return t.code[t.pc] == bytecode::CALL || t.code[t.pc] == bytecode::PAUSE;   // the op byte comes first
-#ifndef XFER_NO_STRING
-		std::string_view s(t.descriptor);
-		size_t i = t.pc;
-		while (i < s.size() && isSep(s[i])) i++;
-		return i < s.size() && (s[i] == 'c' || s[i] == 'C');
-#else
-		return false;
-#endif
+		return t.code[t.pc] == bytecode::CALL || t.code[t.pc] == bytecode::PAUSE;
 	}
-#ifndef XFER_NO_STRING
-	static void skipToGroupEnd(Transfer& t)
+	static bool refuse(Transfer& t, uint8_t pos)
 	{
-		std::string_view s(t.descriptor);
-		size_t i = t.pc;
-		t.arg += slotsUntilGroupEnd(s, i);   // the arguments of the tokens left in the group
-		t.pc = uint8_t(i);
-		if (t.pc < s.size()) { t.pc++; bool star; hexNumberOrStar(t, s, star); if (star) t.arg++; }
+		t.result = {}; t.result.error = Error::Descriptor; t.result.pos = pos; t.result.done = true;
+		return false;
 	}
-#endif
 };
 
 // ---- compile-time descriptors (C++) ------------------------------------------------------------
@@ -912,24 +730,21 @@ struct Literal
 	constexpr std::string_view view() const { return {text, N - 1}; }
 };
 
-template<Literal L, Role R = Role::I2cController>
+template<Literal L>
 struct Descriptor
 {
 	static constexpr std::string_view text = L.view();
-	static constexpr Parsed parsed = parse(text, R);
+	static constexpr Parsed parsed = parse(text);
 	static_assert(parsed.ok, "bad transfer descriptor (see Parsed::message)");
 	static constexpr size_t slots = parsed.slots;
-	static constexpr Role role = R;
 	static constexpr bytecode::Code compiled = bytecode::compile(text);
-	static constexpr bool hasCode = compiled.ok;
-	// the bytecode (an empty END program when the form has no bytecode: target and UART descriptors)
+	static_assert(compiled.ok, "descriptor too long for the bytecode form");
 	static constexpr auto code = [] {
-		std::array<uint8_t, compiled.ok ? compiled.size : 1> a{};
-		if constexpr (compiled.ok) for (size_t i = 0; i < compiled.size; i++) a[i] = compiled.bytes[i];
-		else a[0] = bytecode::END;
+		std::array<uint8_t, compiled.size> a{};
+		for (size_t i = 0; i < compiled.size; i++) a[i] = compiled.bytes[i];
 		return a;
 	}();
-	constexpr const char* c_str() const { return L.text; }
+	constexpr const char* c_str() const { return L.text; }   // for messages; the engine never reads it
 };
 
 template<Literal L>

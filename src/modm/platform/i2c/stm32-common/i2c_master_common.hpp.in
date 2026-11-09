@@ -241,7 +241,8 @@ protected:
 
 	I2cTransaction *volatile transaction{nullptr};
 	I2cTransferBase *volatile client{nullptr};	///< the attached transfer (or a transaction)
-	xfer::Segment seg{};	///< the transfer's current data segment
+	const xfer::Segment *seg{nullptr};	///< the transfer's current data segment (prepared, or scratch)
+	xfer::Segment scratch{};	///< the interpreter's segment when it is not prepared
 	bool served{false};		///< its buffer was handed to the state machine
 	bool prefetched{false};	///< seg was fetched when the previous attach ended (p, polling)
 	ConfigurationHandler configuration{nullptr};
