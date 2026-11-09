@@ -15,6 +15,7 @@
 #include "i2c.hpp"
 #include "i2c_master.hpp"
 #include "i2c_transaction.hpp"
+#include "i2c_bus.hpp"
 #include <modm/architecture/interface/fiber.hpp>
 #include <modm/architecture/interface/clock.hpp>
 
@@ -51,7 +52,7 @@ class I2cDevice
 public:
 	///	@param	address	the slave address not yet shifted left (address < 128).
 	constexpr I2cDevice(uint8_t address)
-	:	transaction(address), configuration(nullptr)
+	:	transaction(address), configuration(nullptr), deviceAddress(address)
 	{
 	}
 
@@ -61,6 +62,7 @@ public:
 	setAddress(uint8_t address)
 	{
 		transaction.setAddress(address);
+		deviceAddress = address;
 	}
 
 	/// Attaches a configuration handler, which is called before a transaction,
@@ -84,6 +86,7 @@ public:
 	[[nodiscard]] bool
 	ping()
 	{
+		if constexpr (HasBus) return runTransfer([&]{ return transferPing(); });
 		modm::this_fiber::poll([&]{ return transaction.configurePing(); });
 		return runTransaction();
 	}
@@ -93,6 +96,15 @@ public:
 	writeRead(const uint8_t *writeBuffer, std::size_t writeSize,
 			  uint8_t *readBuffer, std::size_t readSize)
 	{
+		if constexpr (HasBus) return runTransfer([&]
+		{
+			using xfer::operator""_desc;
+			if (writeSize and readSize)
+				return I2cMaster::bus().transfer(xfer, "i w* r*"_desc, deviceAddress, writeBuffer, writeSize, readBuffer, readSize);
+			if (writeSize) return transferWrite(writeBuffer, writeSize);
+			if (readSize) return transferRead(readBuffer, readSize);
+			return transferPing();
+		});
 		modm::this_fiber::poll([&]{ return transaction.configureWriteRead(writeBuffer, writeSize, readBuffer, readSize); });
 		return runTransaction();
 	}
@@ -101,6 +113,7 @@ public:
 	[[nodiscard]] bool
 	write(const uint8_t *buffer, std::size_t size)
 	{
+		if constexpr (HasBus) return runTransfer([&]{ return size ? transferWrite(buffer, size) : transferPing(); });
 		modm::this_fiber::poll([&]{ return transaction.configureWrite(buffer, size); });
 		return runTransaction();
 	}
@@ -109,9 +122,16 @@ public:
 	[[nodiscard]] bool
 	read(uint8_t *buffer, std::size_t size)
 	{
+		if constexpr (HasBus) return runTransfer([&]{ return size ? transferRead(buffer, size) : transferPing(); });
 		modm::this_fiber::poll([&]{ return transaction.configureRead(buffer, size); });
 		return runTransaction();
 	}
+
+	/// The result of the last ping(), write(), read() or writeRead() on a platform whose
+	/// I2cMaster has a bus(): the error, the token and the byte where it happened.
+	const xfer::Result&
+	transferResult() const
+	{ return xfer.result(); }
 
 protected:
 	/// Starts the transaction with our own transaction object.
@@ -165,8 +185,54 @@ protected:
 protected:
 	Transaction transaction;
 private:
+	// ping(), write(), read() and writeRead() run as transfers where the I2cMaster is an
+	// I2cBus object (I2cMaster::bus()); elsewhere through the transaction as before
+	static constexpr bool HasBus = requires { I2cMaster::bus(); };
+
+	bool
+	transferPing()
+	{
+		using xfer::operator""_desc;
+		return I2cMaster::bus().transfer(xfer, "i"_desc, deviceAddress);
+	}
+	bool
+	transferWrite(const uint8_t *buffer, std::size_t size)
+	{
+		using xfer::operator""_desc;
+		return I2cMaster::bus().transfer(xfer, "i w*"_desc, deviceAddress, buffer, size);
+	}
+	bool
+	transferRead(uint8_t *buffer, std::size_t size)
+	{
+		using xfer::operator""_desc;
+		return I2cMaster::bus().transfer(xfer, "i r*"_desc, deviceAddress, buffer, size);
+	}
+
+	/// Starts the transfer and waits until finished or the timeout expired.
+	template< class Start >
+	bool
+	runTransfer(Start&& start)
+	{
+		I2cMaster::setTransactionTimeout(timeout);
+		xfer.setConfiguration(configuration);
+		const auto begin = modm::Clock::now();
+		const auto expired = [&] { return timeout.count() and modm::Clock::now() - begin > timeout; };
+		bool started{false};
+		modm::this_fiber::poll([&]{ return (started = start()) or expired(); });
+		if (started) modm::this_fiber::poll([&]{ return xfer.isDone() or expired(); });
+		if (not started or not xfer.isDone())
+		{
+			// The bus is stuck: detach all transactions and reset the master
+			I2cMaster::reset();
+			return false;
+		}
+		return xfer.result().error == xfer::Error::None;
+	}
+
 	I2c::ConfigurationHandler configuration;
 	std::chrono::milliseconds timeout{100};
+	uint8_t deviceAddress;
+	I2cTransfer<5> xfer;
 };
 
 }	// namespace modm

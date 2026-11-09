@@ -330,7 +330,7 @@ struct Interpreter
 				seg.kind = Segment::Kind::Data; seg.pos = at; seg.address = t.address; seg.read = false;
 				seg.start = !t.joinNext; seg.timeoutMs = t.timeoutMs;
 				uint16_t n = 0;
-				while (t.pc + 1 < s.size() && hexValue(s[t.pc]) >= 0 && hexValue(s[t.pc + 1]) >= 0 && n < sizeof(t.inlineBuf))
+				while (size_t(t.pc) + 1 < s.size() && hexValue(s[t.pc]) >= 0 && hexValue(s[t.pc + 1]) >= 0 && n < sizeof(t.inlineBuf))
 				{
 					t.inlineBuf[n++] = uint8_t(hexValue(s[t.pc]) << 4 | hexValue(s[t.pc + 1]));
 					t.pc += 2;
@@ -385,7 +385,7 @@ struct Interpreter
 				else { if (star) t.arg++; t.inGroup = false; }
 				break;
 			}
-			case 'D': while (t.pc + 1 < s.size() && hexValue(s[t.pc]) >= 0 && hexValue(s[t.pc + 1]) >= 0) t.pc += 2; break;
+			case 'D': while (size_t(t.pc) + 1 < s.size() && hexValue(s[t.pc]) >= 0 && hexValue(s[t.pc + 1]) >= 0) t.pc += 2; break;
 			case 's': break;
 			default: break;   // parse() refused anything else
 			}
