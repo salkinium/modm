@@ -36,6 +36,14 @@ I2cMasterBase::start(I2cTransaction *t, ConfigurationHandler handler)
 	return a != Attach::Refused;
 }
 
+bool
+I2cMasterBase::start(I2cTransferBase &x)
+{
+	modm::atomic::Lock lock;
+	if (attach(x) == Attach::Now) begin();
+	return true;
+}
+
 void
 I2cMasterBase::reset()
 {
@@ -202,7 +210,7 @@ I2cMasterBase::isr()
 			// a ping, or only empty write buffers; before a Restart the next segment is
 			// asked for first, the transaction may end here instead (OperationAfterStart::End)
 			I2cTransaction::Starting s{0, OperationAfterStart::Stop};
-			if (next == Operation::Restart and (s = transaction->starting()).next == OperationAfterStart::End)
+			if (next == Operation::Restart and (s = starting()).next == OperationAfterStart::End)
 				next = Operation::Stop;
 			const bool stop = next == Operation::Stop;
 			end(stop); buffer(false);
@@ -281,7 +289,7 @@ I2cMasterBase::isr()
 		// more() may have fetched buffers: the operation after this one is `next` now. The
 		// next segment is asked for before its START, the transaction may end here instead.
 		I2cTransaction::Starting s{0, OperationAfterStart::Stop};
-		if (next == Operation::Restart and (s = transaction->starting()).next == OperationAfterStart::End)
+		if (next == Operation::Restart and (s = starting()).next == OperationAfterStart::End)
 			next = Operation::Stop;
 		const bool stop = next == Operation::Stop;
 		end(stop); buffer(false);
@@ -321,7 +329,7 @@ I2cMasterBase::begin()
 			if (r->SR2 & I2C_SR2_BUSY) { fail(Error::BusBusy); return detach(DetachCause::ErrorCondition); }
 		}
 	}
-	const auto s = transaction->starting();
+	const auto s = starting();
 	if (s.next == OperationAfterStart::End) { active = false; return detach(DetachCause::NormalStop); }
 	if (not segment(s)) return refuse();
 	go(State::Idle, START, Action::Start, State::SbWait);
@@ -348,11 +356,11 @@ I2cMasterBase::more()
 // the segment is over (STOP or START requested): the transaction is detached at its STOP,
 // at a Restart the next segment is fetched now, its START is already programmed
 void
-I2cMasterBase::finishSegment(const I2cTransaction::Starting *starting)
+I2cMasterBase::finishSegment(const I2cTransaction::Starting *fetched)
 {
 	if (next == Operation::Stop)
 		return detach((error == Error::NoError) ? DetachCause::NormalStop : DetachCause::ErrorCondition);
-	const auto s = starting ? *starting : transaction->starting();
+	const auto s = fetched ? *fetched : starting();
 	if (s.next == OperationAfterStart::End)
 	{
 		// the transaction ends after a read whose repeated START is programmed already (a

@@ -10,7 +10,7 @@
 // ----------------------------------------------------------------------------
 
 #pragma once
-#include "i2c_transaction.hpp"
+#include "i2c.hpp"
 #include "transfer.hpp"
 #include <modm/architecture/interface/fiber.hpp>
 
@@ -29,23 +29,19 @@ class I2cBus;
  * const auto& result = xfer.wait();                  // in a fiber
  * @endcode
  *
- * It is an I2cTransaction, so every I2C driver that runs transactions runs it: the
- * interpreter yields one segment at a time and this class hands them to the driver as
- * starting()/writing()/reading(). The result names the error, the token and the byte.
+ * The bus driver runs the interpreter itself: it asks for one segment at a time, runs the
+ * callbacks between segments with the bus held, and reports how each segment ended. The
+ * result names the error, the token and the byte. Transfers wait in a queue of their own
+ * next to the transactions; while both kinds wait, the driver alternates between them.
  *
- * - A callback between segments (`c`) runs when the driver asks for the next segment,
- *   with the bus held. If it ends the transfer, the driver stops (OperationAfterStart::End);
- *   after a read on the STM32 v1 peripheral the repeated START is already programmed, so the
- *   device is addressed for writing once more before the STOP.
- * - `p` (STOP inside the transfer) and an address NACK that a callback polls end the
- *   driver's transaction; this object attaches itself again from detaching(), before the
- *   driver takes the next queued transaction, so the bus stays with it.
- * - `C` (pause) and `t` (timeout) are not supported yet: `C` ends the transfer with
- *   Error::Internal, `t` is ignored.
+ * - After a read on the STM32 v1 peripheral the repeated START is programmed before the
+ *   last byte arrives, so a callback there that ends the transfer costs one address byte
+ *   (the device is addressed for writing once more before the STOP).
+ * - `C` (pause) ends the transfer with Error::Internal, `t` (timeout) is ignored.
  *
  * @ingroup modm_architecture_i2c
  */
-class I2cTransferBase : public I2cTransaction
+class I2cTransferBase
 {
 public:
 	using Error = xfer::Error;
@@ -56,8 +52,7 @@ public:
 	{ return t.result; }
 
 	/// The transfer has ended (successfully or not) and the object can be reused.
-	/// Reads the interpreter's volatile busy flag: Result::done is a plain bool that the
-	/// interrupt sets, a loop over it would be optimized into a single read.
+	/// Reads the interpreter's volatile busy flag (Result::done is a plain bool).
 	bool
 	isDone() const
 	{ return not t.busy; }
@@ -77,7 +72,7 @@ public:
 
 	/// The configuration handler the bus applies before this transfer (I2cDevice).
 	void
-	setConfiguration(ConfigurationHandler handler)
+	setConfiguration(I2c::ConfigurationHandler handler)
 	{ configuration = handler; }
 
 	/// The interpreter's transfer object, for callbacks.
@@ -85,20 +80,15 @@ public:
 	state()
 	{ return t; }
 
+	/// Used by the bus drivers: the queue link and the configuration handler.
+	/// @{
+	xfer::Transfer &t;
+	I2cTransferBase *queueNext{nullptr};
+	I2c::ConfigurationHandler configuration{nullptr};
+	/// @}
+
 protected:
-	explicit I2cTransferBase(xfer::Transfer &transfer) : I2cTransaction(0), t(transfer) {}
-
-	Starting
-	starting() override;
-
-	Writing
-	writing() override;
-
-	Reading
-	reading() override;
-
-	void
-	detaching(DetachCause cause) override;
+	explicit I2cTransferBase(xfer::Transfer &transfer) : t(transfer) {}
 
 private:
 	friend class I2cBus;
@@ -109,19 +99,6 @@ private:
 
 	bool
 	runParsed(I2cBus &bus, const char *descriptor, const uintptr_t *args, size_t count);
-
-	bool start();
-	bool nextData(bool busHeld);
-	void doneData();
-	static Error map(I2cMaster::Error error);
-
-	xfer::Transfer &t;
-	I2cBus *bus{nullptr};
-	ConfigurationHandler configuration{nullptr};
-	xfer::Segment seg{};
-	bool prefetched{false};	///< seg was fetched by detaching() for the next attach
-	bool served{false};		///< seg's buffer was handed to the driver
-	bool stopFirst{false};	///< a p after a held bus: STOP now, the rest after re-attaching
 };
 
 /// A transfer with `Slots` argument slots (the number the descriptor takes).

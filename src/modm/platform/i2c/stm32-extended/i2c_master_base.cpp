@@ -36,6 +36,14 @@ I2cMasterBase::start(I2cTransaction *t, ConfigurationHandler handler)
 	return a != Attach::Refused;
 }
 
+bool
+I2cMasterBase::start(I2cTransferBase &x)
+{
+	modm::atomic::Lock lock;
+	if (attach(x) == Attach::Now) begin();
+	return true;
+}
+
 void
 I2cMasterBase::reset()
 {
@@ -227,7 +235,7 @@ I2cMasterBase::isr()
 	else if (isr & I2C_ISR_TC)
 	{
 		if (next != Operation::Restart) return unexpected(TC);
-		const auto s = transaction->starting();
+		const auto s = starting();
 		if (s.next == OperationAfterStart::End)
 		{
 			// the transaction decided to end here: STOP from TC, without an error
@@ -267,7 +275,7 @@ I2cMasterBase::begin()
 	}
 	go(State::Idle, START, Action::Start, State::Addr);
 	r->CR1 = I2C_CR1_PE | I2C_CR1_ERRIE | I2C_CR1_TCIE | I2C_CR1_STOPIE | I2C_CR1_NACKIE | I2C_CR1_RXIE | I2C_CR1_TXIE;
-	const auto s = transaction->starting();
+	const auto s = starting();
 	if (s.next == OperationAfterStart::End) { r->CR1 = I2C_CR1_PE | I2C_CR1_ERRIE; active = false; return detach(DetachCause::NormalStop); }
 	if (not segment(s)) refuse();
 }

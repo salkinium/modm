@@ -11,6 +11,7 @@
 
 #pragma once
 #include <modm/architecture/interface/i2c_bus.hpp>
+#include <modm/architecture/interface/i2c_transfer.hpp>
 #include <modm/architecture/interface/i2c_transaction.hpp>
 #include <modm/platform/device.hpp>
 #include <cstddef>
@@ -122,10 +123,10 @@ public:
 	getErrorIndex() const final
 	{ return errorIndex; }
 
-	/// A transaction is attached or its transfer still runs.
+	/// A transaction or transfer is attached or its bus traffic still runs.
 	bool
 	busy() const
-	{ return active or transaction; }
+	{ return active or transaction or client; }
 
 	/// Clears a bus that a device holds, see I2c::clearBus(), `true` after a read was cut
 	/// off. Called by reset() and when the bus is still busy at a START.
@@ -145,6 +146,15 @@ protected:
 	Attach
 	attach(I2cTransaction *transaction, ConfigurationHandler handler);
 
+	/// Attaches the transfer (bound and begun by I2cTransferBase), interrupts locked.
+	Attach
+	attach(I2cTransferBase &transfer);
+
+	/// What follows a START: the next segment's address and direction, from the attached
+	/// transaction or transfer (OperationAfterStart::End: nothing, STOP now).
+	I2cTransaction::Starting
+	starting();
+
 	/// Detaches the current transaction and attaches the next queued one: `true` if it
 	/// is to begin now.
 	bool
@@ -158,6 +168,13 @@ protected:
 	/// a ping). `false` for a read of length 0, which is refused.
 	bool
 	fetch(Operation op);
+
+	// a transfer's segments: the interpreter runs in the driver
+	bool nextData(bool busHeld);
+	void doneData();
+	bool continueTransfer(DetachCause cause);
+	bool takeNext();
+	static xfer::Error map(Error error);
 
 	void
 	trace(uint8_t before, uint8_t flag, uint8_t action, uint8_t after)
@@ -183,8 +200,14 @@ protected:
 
 	const uintptr_t peripheral;
 	I2cTransaction *queueHead{nullptr}, *queueTail{nullptr};	///< intrusive, through I2cTransaction::queueNext
+	I2cTransferBase *xferHead{nullptr}, *xferTail{nullptr};	///< intrusive, through I2cTransferBase::queueNext
+	bool preferTransfer{false};	///< the next client from the transfer queue, when both wait
 
 	I2cTransaction *volatile transaction{nullptr};
+	I2cTransferBase *volatile client{nullptr};	///< the attached transfer (or a transaction)
+	xfer::Segment seg{};	///< the transfer's current data segment
+	bool served{false};		///< its buffer was handed to the state machine
+	bool prefetched{false};	///< seg was fetched when the previous attach ended (p, polling)
 	ConfigurationHandler configuration{nullptr};
 
 	// the current buffer, fetched before its START

@@ -34,6 +34,10 @@ public:
 	bool
 	start(I2cTransaction *transaction, ConfigurationHandler handler = nullptr) final;
 
+	/// Starts the transfer (bound and begun by I2cTransferBase), or queues it.
+	bool
+	start(I2cTransferBase &transfer) final;
+
 	/// Ends the transfer with a STOP after the current byte, detaches the current and all
 	/// queued transactions, resets the peripheral and clears the bus with `recoverBus`
 	/// if a device still holds it. Busy waits up to 4 ms; not from an interrupt.
