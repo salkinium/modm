@@ -244,6 +244,7 @@ class I2cDevice(Module):
     def build(self, env):
         env.outbasepath = "modm/src/modm/architecture"
         env.copy("interface/i2c_device.hpp")
+        env.copy("interface/i2c_bus_device.hpp")
 # -----------------------------------------------------------------------------
 
 class I2cMultiplexer(Module):
