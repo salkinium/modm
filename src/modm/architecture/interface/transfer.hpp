@@ -11,6 +11,7 @@
 //   p             STOP here, the next S/s starts again       t<ms> t*  timeout for what follows
 //   c             synchronous callback (interrupt context)   C         asynchronous callback (pause)
 //   [ ... ]<n> ]* repeat the group n times (0: until a callback breaks out)
+//   d<us> d*      busy-wait in the engine, microseconds; the bus stays held between data tokens
 //
 // A descriptor is checked by parse() and compiled to bytecode by bytecode::compile(), both
 // constexpr: a "..."_desc literal does it at compile time, Interpreter::begin(t, string, ...)
@@ -80,7 +81,7 @@ using Completion = void (*)(Transfer&);
 // one step for the engine
 struct Segment
 {
-	enum class Kind : uint8_t { Data, Callback, Pause, Stop, Done, Finished };   // Stop: release the bus (p after a hold); Finished: a callback ended the transfer, only from nextData()
+	enum class Kind : uint8_t { Data, Callback, Pause, Stop, Done, Finished, Delay };   // Stop: release the bus (p after a hold); Finished: a callback ended the transfer, only from nextData(); Delay: busy-wait 'length' microseconds, then ask again
 	enum class After : uint8_t { Stop, Restart, Join, Hold };  // Hold: a callback decides, keep the bus
 
 	Kind kind{Kind::Done};
@@ -117,7 +118,7 @@ inline constexpr int hexValue(char c)
 }
 
 // kinds of argument slots, as a signature string: p pointer, n length, a address, c callback,
-// C async callback, t timeout
+// C async callback, t timeout, d delay
 struct Parsed
 {
 	bool ok{false};
@@ -213,6 +214,13 @@ constexpr Parsed parse(std::string_view s, Role role = Role::I2cController)
 			slot('C'); p.hasAsync = p.hasCallback = true; lastWrite = false;
 			break;
 		case 't': { const int v = number(star); if (star) slot('t'); else if (v < 0) return fail(at, "t needs milliseconds"); break; }
+		case 'd': {
+			if (join) return fail(at, "+ must be followed by a write");
+			const int v = number(star);
+			if (star) slot('d'); else if (v < 0) return fail(at, "d needs microseconds (hex, at most ffff)");
+			lastWrite = false;
+			break;
+		}
 		case '[':
 			if (inGroup) return fail(at, "groups do not nest");
 			if (join) return fail(at, "+ must be followed by a write");
@@ -259,11 +267,11 @@ constexpr Parsed parse(std::string_view s, Role role = Role::I2cController)
 // the interrupt.
 //   ADDR p a | ADDRARG p | INLINE p f n b.. | WRITE p f n | WRITEARG p f | READ p f n | READARG p f |
 //   JOIN p | STOP p | CALL p | PAUSE p | TIMEOUT p lo hi | TIMEOUTARG p |
-//   LOOP p lo hi slots (count 0: argument, 0xffff: forever) | END_LOOP p | END p
+//   LOOP p lo hi slots (count 0: argument, 0xffff: forever) | END_LOOP p | END p | DELAY p lo hi | DELAYARG p
 //   f = after (2 bits) | after when the group repeats (2 bits) << 2
 namespace bytecode
 {
-enum Op : uint8_t { ADDR, ADDRARG, INLINE, WRITE, WRITEARG, READ, READARG, JOIN, STOP, CALL, PAUSE, TIMEOUT, TIMEOUTARG, LOOP, END_LOOP, END };
+enum Op : uint8_t { ADDR, ADDRARG, INLINE, WRITE, WRITEARG, READ, READARG, JOIN, STOP, CALL, PAUSE, TIMEOUT, TIMEOUTARG, LOOP, END_LOOP, END, DELAY, DELAYARG };   // new ops go last: host-compiled arrays keep their values
 
 struct Code
 {
@@ -279,10 +287,10 @@ constexpr size_t skipOp(const uint8_t* code, size_t i)
 	switch (code[i])
 	{
 	case ADDR: case WRITEARG: case READARG: return i + 3;
-	case WRITE: case READ: case TIMEOUT: return i + 4;
+	case WRITE: case READ: case TIMEOUT: case DELAY: return i + 4;
 	case INLINE: return i + 4 + code[i + 3];
 	case LOOP: return i + 5;
-	default: return i + 2;   // ADDRARG JOIN STOP CALL PAUSE TIMEOUTARG END_LOOP END
+	default: return i + 2;   // ADDRARG JOIN STOP CALL PAUSE TIMEOUTARG END_LOOP END DELAYARG
 	}
 }
 
@@ -305,6 +313,9 @@ constexpr uint8_t afterOf(const uint8_t* code, size_t i, size_t bodyStart, bool 
 		case INLINE: case WRITE: case WRITEARG: return join ? A_JOIN : A_RESTART;
 		case READ: case READARG: case ADDR: case ADDRARG: return A_RESTART;
 		case CALL: case PAUSE: return A_HOLD;
+		// DELAY: looked through, the delay runs where the engine fetches the next segment (v2: at TC
+		// before the repeated START, SCL low; after a STOP: on a free bus). Hold would cost v1 an
+		// address byte after a read, and a delay has nothing to decide.
 		case STOP: case END: return A_STOP;
 		case END_LOOP: if (repeat && bodyStart) { j = bodyStart; join = false; guard++; continue; } break;
 		default: break;
@@ -361,6 +372,7 @@ constexpr Compiled compile(std::string_view s, uint8_t* out, size_t capacity)
 		case 'c': op(CALL); break;
 		case 'C': op(PAUSE); break;
 		case 't': { const int v = number(star); if (star) op(TIMEOUTARG); else { op(TIMEOUT); put(v & 0xff); put(v >> 8); } break; }
+		case 'd': { const int v = number(star); if (star) op(DELAYARG); else { op(DELAY); put(v & 0xff); put(v >> 8); } break; }
 		case '[': loopAt = c.size; op(LOOP); put(0); put(0); put(0); break;   // count and slots are patched at the ]
 		case ']': {
 			const int v = number(star);
@@ -372,7 +384,7 @@ constexpr Compiled compile(std::string_view s, uint8_t* out, size_t capacity)
 				for (size_t j = loopAt + 5; j < c.size; j = skipOp(c.bytes, j))
 					switch (c.bytes[j])
 					{
-					case ADDRARG: case CALL: case PAUSE: case TIMEOUTARG: case WRITE: case READ: slots++; break;
+					case ADDRARG: case CALL: case PAUSE: case TIMEOUTARG: case DELAYARG: case WRITE: case READ: slots++; break;
 					case WRITEARG: case READARG: slots += 2; break;
 					default: break;
 					}
@@ -521,7 +533,7 @@ struct Interpreter
 		{
 			Segment seg = step(t);
 			if (seg.kind == Segment::Kind::Done) break;
-			if (n == t.preCapacity || (seg.kind != Segment::Kind::Data && seg.kind != Segment::Kind::Stop)) { reset(t); return; }   // does not fit: interpret in the interrupt
+			if (n == t.preCapacity || (seg.kind != Segment::Kind::Data && seg.kind != Segment::Kind::Stop && seg.kind != Segment::Kind::Delay)) { reset(t); return; }   // does not fit: interpret in the interrupt
 			std::construct_at(&t.pre[n++], seg);   // the array is raw storage until here
 		}
 		if (n && t.pre[n - 1].kind == Segment::Kind::Data && t.pre[n - 1].after == Segment::After::Stop) t.pre[n - 1].last = true;
@@ -530,7 +542,7 @@ struct Interpreter
 	}
 
 	// The next data segment for an engine that does not want to see callbacks: Callback segments are
-	// executed here, so only Data, Stop, Pause, Done and Finished come back. Finished means a callback
+	// executed here, so only Data, Stop, Pause, Delay, Done and Finished come back. Finished means a callback
 	// ended the transfer (the completion has run): the engine releases the bus and calls nothing else.
 	// The same without copies: a pointer into the prepared segments, or to 'scratch' (the engine's)
 	// when the interpreter runs. Valid until the next call.
@@ -607,6 +619,8 @@ struct Interpreter
 			case PAUSE: seg.kind = Segment::Kind::Pause; seg.pos = at; seg.asyncCallback = reinterpret_cast<AsyncCallback>(t.args[t.arg++]); return seg;
 			case TIMEOUT: t.timeoutMs = uint16_t(code[t.pc] | code[t.pc + 1] << 8); t.pc += 2; break;
 			case TIMEOUTARG: t.timeoutMs = uint16_t(t.args[t.arg++]); break;
+			case DELAY: seg.kind = Segment::Kind::Delay; seg.pos = at; seg.length = uint16_t(code[t.pc] | code[t.pc + 1] << 8); t.pc += 2; return seg;
+			case DELAYARG: seg.kind = Segment::Kind::Delay; seg.pos = at; seg.length = uint16_t(t.args[t.arg++]); return seg;
 			case LOOP: {
 				const uint16_t count = uint16_t(code[t.pc] | code[t.pc + 1] << 8);
 				const uint8_t slots = code[t.pc + 2]; t.pc += 3;
@@ -774,7 +788,7 @@ constexpr bool matchesSlot(char kind)
 	switch (kind)
 	{
 	case 'p': return std::is_pointer_v<U> && !std::is_function_v<std::remove_pointer_t<U>>;
-	case 'n': case 'a': case 't': return std::is_integral_v<U> || std::is_enum_v<U>;
+	case 'n': case 'a': case 't': case 'd': return std::is_integral_v<U> || std::is_enum_v<U>;
 	case 'c': return std::is_convertible_v<U, Callback>;
 	case 'C': return std::is_convertible_v<U, AsyncCallback>;
 	}

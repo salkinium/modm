@@ -38,6 +38,8 @@ class I2cBus;
  *   last byte arrives, so a callback there that ends the transfer costs one address byte
  *   (the device is addressed for writing once more before the STOP).
  * - `C` (pause) ends the transfer with Error::Internal, `t` (timeout) is ignored.
+ * - `d` (delay) busy-waits with modm::delay_us() where the next segment is fetched, normally in
+ *   the interrupt: between data tokens with SCL held low, after `p` on a free bus.
  *
  * @ingroup modm_architecture_i2c
  */

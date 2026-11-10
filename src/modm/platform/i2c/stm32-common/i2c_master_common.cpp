@@ -10,6 +10,7 @@
 // ----------------------------------------------------------------------------
 
 #include "i2c_master_common.hpp"
+#include <modm/architecture/interface/delay.hpp>
 
 namespace modm::platform
 {
@@ -171,6 +172,15 @@ I2cMasterCommon::nextOther(const xfer::Segment *s, bool busHeld)
 				return true;
 			case xfer::Segment::Kind::Stop:		// release the bus first, the rest after a fresh START
 				if (busHeld) return false;
+				break;
+			case xfer::Segment::Kind::Delay:		// d: busy-wait, the bus stays as it is (SCL low between data tokens)
+#ifdef I2C_SR2_BUSY
+				// v1 has no STOP interrupt: after p the STOP may still be under way, so wait for it
+				// and the bus is free for the whole delay (a stuck SCL ends this wait after 1 ms)
+				if (not busHeld)
+					for (int i = 0; i < 1000 and (regs()->CR1 & I2C_CR1_STOP); i++) modm::delay_us(1);
+#endif
+				modm::delay_us(s->length);
 				break;
 			case xfer::Segment::Kind::Pause:		// not supported
 				xfer::Interpreter::fail(t, xfer::Error::Internal, s->pos);
