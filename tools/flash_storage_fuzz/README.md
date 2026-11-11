@@ -8,6 +8,7 @@ stored data against a reference model after each reboot.
 OUT=build ./build.sh   # FDB=, ZMS=, SUFFIX= select other sources, e.g. upstream
 build/zms seeds=10 cap=1000 cut=prefix erase=atomic prog=content when=ops
 build/fdb8 wear=20000 prog=content   # no power loss: wear and double writes
+build/zms seed=7 unit=32 trace=1 ...   # one seed with every flash operation and reset
 ```
 
 ## What is tested
@@ -36,12 +37,15 @@ build/fdb8 wear=20000 prog=content   # no power loss: wear and double writes
 `cut`: what the interrupted program unit contains (units before it are written
 completely, units after it are not touched)
 - `unit`: nothing, the unit is still erased. The gentlest model.
-- `prefix`: its first 0-7 bytes, like the `max_len` of the Zephyr flash simulator.
+- `prefix`: its first 0 to unit-1 bytes, like the `max_len` of the Zephyr flash simulator.
 - `bits`: a random half of the bits that should be cleared. Closest to an
   interrupted program pulse on ECC flash, which programs a whole unit at once.
 - `stm32`: measured on L4/L5/U3/U5/H5/H7 (`modm flash storage.md`, "Interrupted
   program on hardware"): 20% still erased, 50% complete, 30% damaged (wrong data
-  with an ECC flag). A damaged unit cannot be programmed (`prog=content`).
+  with an ECC flag). A damaged unit cannot be programmed (`prog=content`). A unit
+  that reads as erased never had an ECC flag on the hardware and could be
+  programmed. Units of all ones data are assumed to behave the same (not
+  measured, the hardware test used `0x5a`).
 
 **The realistic model for STM32 with ECC is `cut=stm32 erase=bits prog=content when=time`.**
 

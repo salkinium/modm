@@ -95,6 +95,7 @@ static int emu_write(uint32_t a, const void *data, size_t n)
 		const int fails = (model.prog == PROG_CONTENT && (!unit_erased(u) || ecc_flag[u])) ||
 						  (model.prog == PROG_TOUCHED && touched[u]);
 		if (fails) {
+			if (trace) printf("    write 0x%04x+%zu FAILED at 0x%04x%s\n", (unsigned)a, n, (unsigned)(u * model.unit), interrupted[u] ? " (residue)" : "");
 			if (interrupted[u]) stats.residue_writes++; else stats.double_writes++;
 			return -EIO;
 		}
@@ -122,7 +123,8 @@ static int emu_write(uint32_t a, const void *data, size_t n)
 		for (size_t i = 0; i < model.unit; i++)
 			flash[base + i] &= b[whole + i] | (r < 70 ? 0 : (uint8_t)rnd(256));
 		touched[u] = 1;
-		ecc_flag[u] = r >= 70;
+		// a word that reads as erased had no ECC flag on the hardware and could be programmed
+		ecc_flag[u] = r >= 70 && !unit_erased(u);
 		break;
 	}
 	case CUT_BITS: // a random subset of the bits that should be cleared
@@ -178,7 +180,7 @@ static int parse(const char *arg, const char *name, const char *const *values, i
 
 int main(int argc, char **argv)
 {
-	unsigned long seeds = 10, cap = 1000, wear = 0;
+	unsigned long seeds = 10, first = 1, cap = 1000, wear = 0;
 	static const char *const cuts[] = {"unit", "prefix", "bits", "stm32", 0}, *const erases[] = {"atomic", "bits", 0},
 		*const progs[] = {"nor", "content", "touched", 0}, *const whens[] = {"ops", "time", 0};
 	for (int i = 1; i < argc; i++) {
@@ -189,6 +191,7 @@ int main(int argc, char **argv)
 		else if (parse(argv[i], "when", whens, &v)) model.when = v;
 		else if (!strncmp(argv[i], "unit=", 5)) model.unit = strtoul(argv[i] + 5, 0, 0);
 		else if (!strncmp(argv[i], "seeds=", 6)) seeds = strtoul(argv[i] + 6, 0, 0);
+		else if (!strncmp(argv[i], "seed=", 5)) first = strtoul(argv[i] + 5, 0, 0), seeds = 1;
 		else if (!strncmp(argv[i], "cap=", 4)) cap = strtoul(argv[i] + 4, 0, 0);
 		else if (!strncmp(argv[i], "trace=", 6)) trace = strtoul(argv[i] + 6, 0, 0);
 		else if (!strncmp(argv[i], "wear=", 5)) wear = strtoul(argv[i] + 5, 0, 0);
@@ -212,7 +215,7 @@ int main(int argc, char **argv)
 	}
 
 	unsigned long survived[1000], capped = 0;
-	for (unsigned long seed = 1; seed <= seeds && seed <= 1000; seed++) {
+	for (unsigned long seed = first; seed < first + seeds && seed - first < 1000; seed++) {
 		rng = seed * 2654435761u;
 		memset(flash, 0xff, sizeof flash); memset(touched, 0, sizeof touched);
 		memset(interrupted, 0, sizeof interrupted); memset(&stats, 0, sizeof stats);
@@ -232,7 +235,7 @@ int main(int argc, char **argv)
 			if (lib_mount()) break;
 			lib_verify();
 		}
-		survived[seed - 1] = resets;
+		survived[seed - first] = resets;
 		if (!failure[0]) capped++;
 		else printf("\n  seed %lu after %lu resets (%s 0x%x, %lu double, %lu residue): %s", seed, resets,
 					stats.op ? stats.op : "-", (unsigned)stats.addr, stats.double_writes,
