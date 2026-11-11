@@ -39,6 +39,11 @@ completely, units after it are not touched)
 - `prefix`: its first 0-7 bytes, like the `max_len` of the Zephyr flash simulator.
 - `bits`: a random half of the bits that should be cleared. Closest to an
   interrupted program pulse on ECC flash, which programs a whole unit at once.
+- `stm32`: measured on L4/L5/U3/U5/H5/H7 (`modm flash storage.md`, "Interrupted
+  program on hardware"): 20% still erased, 50% complete, 30% damaged (wrong data
+  with an ECC flag). A damaged unit cannot be programmed (`prog=content`).
+
+**The realistic model for STM32 with ECC is `cut=stm32 erase=bits prog=content when=time`.**
 
 `erase`: what an interrupted erase leaves
 - `atomic`: the sector is unchanged, the erase did not start.
@@ -50,16 +55,20 @@ completely, units after it are not touched)
   without `CONFIG_FLASH_SIMULATOR_DOUBLE_WRITES` (ECC flash with an erased check
   by reading, STM32 PROGERR).
 - `touched`: if anything programmed the unit since the erase, even if it still
-  reads as erased. The harshest model, only realistic if the flash controller
-  remembers interrupted programs in the ECC bits.
+  reads as erased. Not realistic: on no measured STM32 did a word that reads
+  as erased fail to program.
 
+Reads outside the flash fail like the range check of a port and are counted.
 Failed programs are counted as `double` (the library wrote a completely
 written unit again: a bug on ECC flash even without power loss) or `residue`
 (the unit was touched by an interrupted operation).
 
 ## Not modeled
 
-- Single-bit ECC corrections and double-ECC read errors: reads return the raw
-  bits. On hardware `Flash::read()` must not fault on them.
+- ECC flags on reads: damaged units read as their wrong data, like the
+  (corrected) data on the hardware. `Flash::read()` must not fault on them, and
+  a storage library must not program them (G0 raises an NMI when programming
+  a word with a double ECC error, L4/L5/U3/U5 set PROGERR).
+- Interrupted erases are not measured on hardware yet, `erase=bits` is a guess.
 - Bits that read correctly but are weakly programmed and flip later.
 - Power loss during the reboot itself (mount and recovery run uninterrupted).

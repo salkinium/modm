@@ -20,7 +20,7 @@
 #include <string.h>
 
 // ---------------------------------------------------------------- the model
-enum cut_model { CUT_UNIT, CUT_PREFIX, CUT_BITS };   // what an interrupted write leaves
+enum cut_model { CUT_UNIT, CUT_PREFIX, CUT_BITS, CUT_STM32 }; // what an interrupted write leaves
 enum erase_model { ERASE_ATOMIC, ERASE_BITS };       // what an interrupted erase leaves
 enum prog_model { PROG_NOR, PROG_CONTENT, PROG_TOUCHED }; // when programming a unit fails
 enum when_model { WHEN_OPS, WHEN_TIME };             // when the power fails
@@ -42,12 +42,13 @@ static struct
 static uint8_t flash[FLASH_MAX];
 static uint8_t touched[FLASH_MAX];     // unit programmed since erase (PROG_TOUCHED)
 static uint8_t interrupted[FLASH_MAX]; // unit touched by an interrupted operation
+static uint8_t ecc_flag[FLASH_MAX];    // unit reads with ECCC/ECCD (CUT_STM32), cannot be programmed
 static long power_left = -1;
 static int trace;           // operations or microseconds until power loss
 static jmp_buf power_loss;
 static struct
 {
-	unsigned long erases, bytes, double_writes, residue_writes;
+	unsigned long erases, bytes, double_writes, residue_writes, bad_reads;
 	const char *op;
 	uint32_t addr;
 } stats;
@@ -75,7 +76,14 @@ static long power_cut(size_t units, uint32_t us_per_unit)
 	return -1;
 }
 
-static int emu_read(uint32_t a, void *b, size_t n) { memcpy(b, flash + a, n); return 0; }
+/// Out of range reads fail like the range check of a port, damaged words read
+/// back as their (ECC corrected) wrong data like on the hardware.
+static int emu_read(uint32_t a, void *b, size_t n)
+{
+	if (a > model.size || n > model.size - a) { stats.bad_reads++; return -EINVAL; }
+	memcpy(b, flash + a, n);
+	return 0;
+}
 
 static int emu_write(uint32_t a, const void *data, size_t n)
 {
@@ -84,7 +92,7 @@ static int emu_write(uint32_t a, const void *data, size_t n)
 		printf("FATAL: unaligned write 0x%x+%zu\n", (unsigned)a, n); exit(2);
 	}
 	for (uint32_t u = a / model.unit; u < (a + n) / model.unit; u++) {
-		const int fails = (model.prog == PROG_CONTENT && !unit_erased(u)) ||
+		const int fails = (model.prog == PROG_CONTENT && (!unit_erased(u) || ecc_flag[u])) ||
 						  (model.prog == PROG_TOUCHED && touched[u]);
 		if (fails) {
 			if (interrupted[u]) stats.residue_writes++; else stats.double_writes++;
@@ -108,6 +116,15 @@ static int emu_write(uint32_t a, const void *data, size_t n)
 		touched[u] = k > 0;
 		break;
 	}
+	case CUT_STM32: { // measured on L4/L5/U3/U5/H5/H7: erased, complete or flagged by the ECC
+		const uint32_t r = rnd(100);
+		if (r < 20) break;
+		for (size_t i = 0; i < model.unit; i++)
+			flash[base + i] &= b[whole + i] | (r < 70 ? 0 : (uint8_t)rnd(256));
+		touched[u] = 1;
+		ecc_flag[u] = r >= 70;
+		break;
+	}
 	case CUT_BITS: // a random subset of the bits that should be cleared
 		for (size_t i = 0; i < model.unit; i++) flash[base + i] &= b[whole + i] | (uint8_t)rnd(256);
 		touched[u] = 1; // the program pulse was applied
@@ -127,12 +144,14 @@ static int emu_erase(uint32_t a, size_t n)
 	memset(flash + a, 0xff, whole);
 	memset(touched + a / model.unit, 0, whole / model.unit);
 	memset(interrupted + a / model.unit, 0, whole / model.unit);
+	memset(ecc_flag + a / model.unit, 0, whole / model.unit);
 	stats.erases += whole / model.sector;
 	if (cut < 0) return 0;
 	const uint32_t s = a + whole;
 	if (model.erase == ERASE_BITS) {
 		for (size_t i = 0; i < model.sector; i++) flash[s + i] |= rnd(256);
-		for (size_t u = s / model.unit; u < (s + model.sector) / model.unit; u++) interrupted[u] = 1;
+		for (size_t u = s / model.unit; u < (s + model.sector) / model.unit; u++)
+			interrupted[u] = 1, ecc_flag[u] = !unit_erased(u); // partially erased words fail ECC
 	}
 	stats.op = "erase"; stats.addr = s;
 	longjmp(power_loss, 1);
@@ -160,7 +179,7 @@ static int parse(const char *arg, const char *name, const char *const *values, i
 int main(int argc, char **argv)
 {
 	unsigned long seeds = 10, cap = 1000, wear = 0;
-	static const char *const cuts[] = {"unit", "prefix", "bits", 0}, *const erases[] = {"atomic", "bits", 0},
+	static const char *const cuts[] = {"unit", "prefix", "bits", "stm32", 0}, *const erases[] = {"atomic", "bits", 0},
 		*const progs[] = {"nor", "content", "touched", 0}, *const whens[] = {"ops", "time", 0};
 	for (int i = 1; i < argc; i++) {
 		int v;
@@ -197,6 +216,7 @@ int main(int argc, char **argv)
 		rng = seed * 2654435761u;
 		memset(flash, 0xff, sizeof flash); memset(touched, 0, sizeof touched);
 		memset(interrupted, 0, sizeof interrupted); memset(&stats, 0, sizeof stats);
+		memset(ecc_flag, 0, sizeof ecc_flag);
 		failure[0] = 0; power_left = -1;
 		lib_format();
 		unsigned long resets = 0;
