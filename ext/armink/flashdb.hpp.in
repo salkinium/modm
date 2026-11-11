@@ -1,0 +1,62 @@
+/*
+ * Copyright (c) 2026, Niklas Hauser
+ *
+ * This file is part of the modm project.
+ *
+ * This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
+ */
+// ----------------------------------------------------------------------------
+
+#pragma once
+#include <flashdb.h>
+
+namespace modm::flashdb
+{
+
+/// Makes the partition known to FlashDB under its name
+void
+add(fal_partition &partition);
+
+%% if flash
+/**
+ * Partition in the internal flash, the offset is relative to `Flash::OriginAddr`
+ * and must be aligned to the pages or sectors, which must all have the same size.
+ * Reserve the flash with the `modm:platform:cortex-m:linkerscript.flash_reserved`
+ * option, the partition then starts at `__flash_reserved_start`.
+ */
+class FlashPartition : public fal_partition
+{
+public:
+	FlashPartition(const char *name, uint32_t offset, size_t size);
+};
+
+%% endif
+/**
+ * Partition on a `modm::BlockDevice`, for example the external flash of
+ * `modm::BdSpiFlash`. FlashDB runs in the fiber that calls it.
+ */
+template< auto &device >
+class BlockDevicePartition : public fal_partition
+{
+	static int
+	read(const fal_partition *part, uint32_t addr, uint8_t *buf, size_t size)
+	{ return device.read(buf, part->offset + addr, size) ? int(size) : -1; }
+
+	static int
+	write(const fal_partition *part, uint32_t addr, const uint8_t *buf, size_t size)
+	{ return device.program(buf, part->offset + addr, size) ? int(size) : -1; }
+
+	static int
+	erase(const fal_partition *part, uint32_t addr, size_t size)
+	{ return device.erase(part->offset + addr, size) ? int(size) : -1; }
+
+public:
+	BlockDevicePartition(const char *name, uint32_t offset, size_t size) :
+		fal_partition{name, name, offset, size,
+					  {device.BlockSizeErase, read, write, erase}, nullptr}
+	{ add(*this); }
+};
+
+} // namespace modm::flashdb

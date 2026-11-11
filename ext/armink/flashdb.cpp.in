@@ -1,0 +1,160 @@
+/*
+ * Copyright (c) 2026, Niklas Hauser
+ *
+ * This file is part of the modm project.
+ *
+ * This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
+ */
+// ----------------------------------------------------------------------------
+
+#include "flashdb.hpp"
+#include <modm/architecture/interface/assert.hpp>
+#include <algorithm>
+#include <cstring>
+%% if flash
+#include <modm/platform/flash/flash.hpp>
+%% endif
+%% if log
+#include <modm/debug/logger.hpp>
+#include <cstdarg>
+%% endif
+
+static fal_partition *partitions{nullptr};
+
+void
+modm::flashdb::add(fal_partition &partition)
+{
+	partition.next = partitions;
+	partitions = &partition;
+}
+
+extern "C"
+{
+
+int
+fal_init()
+{ return 0; }
+
+const fal_partition *
+fal_partition_find(const char *name)
+{
+	for (auto *part = partitions; part; part = part->next)
+		if (std::strcmp(part->name, name) == 0) return part;
+	return nullptr;
+}
+
+const fal_flash_dev *
+fal_flash_device_find(const char *name)
+{
+	const auto *part = fal_partition_find(name);
+	return part ? &part->dev : nullptr;
+}
+
+int
+fal_partition_read(const fal_partition *part, uint32_t addr, uint8_t *buf, size_t size)
+{
+	if (addr + size > part->len) return -1;
+	return part->dev.read(part, addr, buf, size);
+}
+
+int
+fal_partition_write(const fal_partition *part, uint32_t addr, const uint8_t *buf, size_t size)
+{
+	if (addr + size > part->len) return -1;
+	return part->dev.write(part, addr, buf, size);
+}
+
+int
+fal_partition_erase(const fal_partition *part, uint32_t addr, size_t size)
+{
+	if (addr + size > part->len) return -1;
+	return part->dev.erase(part, addr, size);
+}
+
+%% if log
+int
+modm_fdb_print(const char *format, ...)
+{
+	va_list args;
+	va_start(args, format);
+	MODM_LOG_INFO.vprintf(format, args);
+	va_end(args);
+	return 0;
+}
+%% endif
+
+} // extern "C"
+
+%% if flash
+// ----------------------------------------------------------------------------
+using modm::platform::Flash;
+static_assert(FDB_WRITE_GRAN >= Flash::WriteSize * 8, "FDB_WRITE_GRAN is smaller than Flash::WriteSize!");
+
+static int
+flash_read(const fal_partition *part, uint32_t addr, uint8_t *buf, size_t size)
+{
+	// A word with a double ECC error is copied anyway, the CRC of FlashDB rejects it
+	(void) Flash::read(Flash::OriginAddr + part->offset + addr, buf, size);
+%% if invert
+	// FlashDB expects the erased flash to read as 0xff
+	for (size_t ii{0}; ii < size; ii++) buf[ii] = ~buf[ii];
+%% endif
+	return int(size);
+}
+
+static int
+flash_write(const fal_partition *part, uint32_t addr, const uint8_t *buf, size_t size)
+{
+	// The buffer program refuses misaligned writes and, on flash with ECC,
+	// targets that are not erased, e.g. a word damaged by a reset
+	const uintptr_t dst = Flash::OriginAddr + part->offset + addr;
+	if (not Flash::unlock()) return -1;
+%% if invert
+	// FlashDB expects the erased flash to read as 0xff. Inverted in chunks up
+	// to the next half-page, so that full half-pages use the faster burst.
+	uint32_t err{};
+	for (size_t ii{0}; ii < size and not err;)
+	{
+		uint32_t chunk[Flash::BurstSize / 4];
+		const size_t count = std::min(size - ii, sizeof(chunk) - (dst + ii) % sizeof(chunk));
+		std::memcpy(chunk, buf + ii, count);
+		for (auto &word : chunk) word = ~word;
+		err = Flash::program(dst + ii, chunk, count);
+		ii += count;
+	}
+%% else
+	const uint32_t err = Flash::program(dst, buf, size);
+%% endif
+	Flash::lock();
+	return err ? -1 : int(size);
+}
+
+static int
+flash_erase(const fal_partition *part, uint32_t addr, size_t size)
+{
+	const uint32_t offset = part->offset + addr;
+	if (not Flash::unlock()) return -1;
+	uint32_t err{};
+	for (uint16_t page = Flash::getPage(offset); page <= Flash::getPage(offset + size - 1) and not err; page++)
+		err = Flash::erase(page);
+	Flash::lock();
+	return err ? -1 : int(size);
+}
+
+modm::flashdb::FlashPartition::FlashPartition(const char *name, uint32_t offset, size_t size) :
+	fal_partition{name, name, offset, size,
+				  {Flash::getSize(Flash::getPage(offset)), flash_read, flash_write, flash_erase}, nullptr}
+{
+	const uint16_t first = Flash::getPage(offset);
+	const uint16_t last = Flash::getPage(offset + size - 1);
+	modm_assert(Flash::getOffset(first) == offset and
+				Flash::getOffset(last) + Flash::getSize(last) == offset + size,
+				"fdb.part", "FlashDB partition is not aligned to the flash pages!");
+	for (uint16_t page = first; page <= last; page++)
+		modm_assert(Flash::getSize(page) == dev.blk_size, "fdb.page",
+					"FlashDB partition has pages of different sizes!");
+	add(*this);
+}
+%% endif

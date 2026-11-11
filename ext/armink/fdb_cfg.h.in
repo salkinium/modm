@@ -1,0 +1,45 @@
+/*
+ * Copyright (c) 2026, Niklas Hauser
+ *
+ * This file is part of the modm project.
+ *
+ * This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
+ */
+// ----------------------------------------------------------------------------
+
+#ifndef _FDB_CFG_H_
+#define _FDB_CFG_H_
+
+// Overwrite the defaults below in your project
+#if __has_include(<fdb_cfg_local.h>)
+#	include <fdb_cfg_local.h>
+#endif
+
+%% if kvdb
+#define FDB_USING_KVDB
+%% endif
+%% if tsdb
+#define FDB_USING_TSDB
+%% endif
+#define FDB_USING_FAL_MODE
+
+// Smallest programmable unit in bits, the same for all databases
+#ifndef FDB_WRITE_GRAN
+#	define FDB_WRITE_GRAN {{ write_gran }}
+#endif
+
+#ifndef FDB_PRINT
+%% if log
+#	ifdef __cplusplus
+extern "C"
+#	endif
+int modm_fdb_print(const char *format, ...) __attribute__((format(printf, 1, 2)));
+#	define FDB_PRINT(...) modm_fdb_print(__VA_ARGS__)
+%% else
+#	define FDB_PRINT(...) ((void)0)
+%% endif
+#endif
+
+#endif /* _FDB_CFG_H_ */

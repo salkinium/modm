@@ -1,0 +1,75 @@
+diff --git a/src/fdb_kvdb.c b/src/fdb_kvdb.c
+index 0406b2d..a88e2e2 100644
+--- a/src/fdb_kvdb.c
++++ b/src/fdb_kvdb.c
+@@ -539,8 +539,20 @@ static fdb_err_t read_sector_info(fdb_kvdb_t db, uint32_t addr, kv_sec_info_t se
+                 /* serve the search below from RAM, it reads the whole sector */
+                 _fdb_read_cache_begin((fdb_db_t)db, sector->addr);
+ #endif
++                /* Searching the last non-0xFF byte from the sector start is not
++                 * enough: a value may end with 0xFF bytes, which the next KV
++                 * would then overwrite. Start the search behind the last KV. */
++                struct fdb_kv kv_obj;
++                uint32_t kv_end = sector->addr + SECTOR_HDR_DATA_SIZE;
++                kv_obj.addr.start = kv_end;
++                do {
++                    read_kv(db, &kv_obj);
++                    if (kv_obj.addr.start + kv_obj.len > kv_end) {
++                        kv_end = kv_obj.addr.start + kv_obj.len;
++                    }
++                } while ((kv_obj.addr.start = get_next_kv_addr(db, sector, &kv_obj)) != FAILED_ADDR);
+                 sector->empty_kv = _fdb_continue_ff_addr((fdb_db_t)db,
+-                        sector->addr + SECTOR_HDR_DATA_SIZE, sector->addr + db_sec_size(db));
++                        kv_end, sector->addr + db_sec_size(db));
+                 sector->remain = db_sec_size(db) - (sector->empty_kv - sector->addr);
+             } else {
+                 sector->empty_kv = FAILED_ADDR;
+diff --git a/src/fdb_tsdb.c b/src/fdb_tsdb.c
+index 9511bdf..b9abbc1 100644
+--- a/src/fdb_tsdb.c
++++ b/src/fdb_tsdb.c
+@@ -280,6 +280,10 @@ static fdb_err_t read_sector_info(fdb_tsdb_t db, uint32_t addr, tsdb_sec_info_t
+     if (sector->status == FDB_SECTOR_STORE_USING && traversal) {
+         struct fdb_tsl tsl;
+ 
++        /* stays invalid if the sector has no complete TSL, e.g. after a power
++         * loss while writing its first TSL */
++        sector->end_time = -1;
++
+         tsl.addr.index = sector->empty_idx;
+         while (read_tsl(db, &tsl) == FDB_NO_ERR) {
+             if (tsl.status == FDB_TSL_UNUSED) {
+@@ -870,10 +874,17 @@ static bool check_sec_hdr_cb(tsdb_sec_info_t sector, void *arg1, void *arg2)
+     fdb_tsdb_t db = arg->db;
+ 
+     if (!sector->check_ok) {
++        /* A power loss while erasing the oldest sector for a rollover or while
++         * writing its header leaves an invalid header: only format this sector
++         * instead of losing all sectors. */
+         FDB_INFO("Sector (0x%08" PRIX32 ") header info is incorrect.\n", sector->addr);
+-        (arg->check_failed) = true;
+-        return true;
+-    } else if (sector->status == FDB_SECTOR_STORE_USING) {
++        if (db->parent.not_formatable || format_sector(db, sector->addr) != FDB_NO_ERR) {
++            (arg->check_failed) = true;
++            return true;
++        }
++        read_sector_info(db, sector->addr, sector, true);
++    }
++    if (sector->status == FDB_SECTOR_STORE_USING) {
+         if (db->cur_sec.addr == FDB_DATA_UNUSED) {
+             memcpy(&db->cur_sec, sector, sizeof(struct tsdb_sec_info));
+         } else {
+@@ -1079,9 +1090,10 @@ fdb_err_t fdb_tsdb_init(fdb_tsdb_t db, const char *name, const char *path, fdb_g
+     /* read the current using sector info */
+     read_sector_info(db, db->cur_sec.addr, &db->cur_sec, true);
+     /* get last save time */
+-    if (db->cur_sec.status == FDB_SECTOR_STORE_USING) {
++    if (db->cur_sec.status == FDB_SECTOR_STORE_USING && db->cur_sec.end_time != -1) {
+         db->last_time = db->cur_sec.end_time;
+-    } else if (db->cur_sec.status == FDB_SECTOR_STORE_EMPTY && db_oldest_addr(db) != db->cur_sec.addr) {
++    } else if ((db->cur_sec.status == FDB_SECTOR_STORE_EMPTY || db->cur_sec.status == FDB_SECTOR_STORE_USING)
++            && db_oldest_addr(db) != db->cur_sec.addr) {
+         struct tsdb_sec_info sec;
+         uint32_t addr = db->cur_sec.addr;
+ 

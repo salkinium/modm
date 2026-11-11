@@ -1,0 +1,105 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+#
+# Copyright (c) 2026, Niklas Hauser
+#
+# This file is part of the modm project.
+#
+# This Source Code Form is subject to the terms of the Mozilla Public
+# License, v. 2.0. If a copy of the MPL was not distributed with this
+# file, You can obtain one at http://mozilla.org/MPL/2.0/.
+# -----------------------------------------------------------------------------
+
+class KvdbModule(Module):
+    def init(self, module):
+        module.name = ":flashdb:kvdb"
+        module.description = """
+# Key-Value Database
+
+Stores values of any size under string keys of up to `FDB_KV_NAME_MAX` (64)
+characters. Updating a key appends a new entry and marks the old one deleted,
+full sectors are garbage collected into the empty sector.
+
+```cpp
+#include <flashdb.h>
+
+static uint32_t boot_count{};
+static fdb_default_kv_node defaults[] = {{"boot_count", &boot_count, sizeof(boot_count)}};
+static fdb_default_kv default_kv{defaults, std::size(defaults)};
+static fdb_kvdb kvdb;
+
+fdb_kvdb_init(&kvdb, "settings", "settings", &default_kv, nullptr);
+fdb_blob blob;
+fdb_kv_get_blob(&kvdb, "boot_count", fdb_blob_make(&blob, &boot_count, sizeof(boot_count)));
+boot_count++;
+fdb_kv_set_blob(&kvdb, "boot_count", fdb_blob_make(&blob, &boot_count, sizeof(boot_count)));
+```
+"""
+
+    def prepare(self, module, options):
+        return True
+
+    def build(self, env):
+        env.outbasepath = "modm/ext/flashdb"
+        env.copy("flashdb/src/fdb_kvdb.c", "fdb_kvdb.c")
+
+
+class TsdbModule(Module):
+    def init(self, module):
+        module.name = ":flashdb:tsdb"
+        module.description = """
+# Time Series Database
+
+Appends blobs of up to `max_len` bytes with a strictly increasing timestamp,
+which can be iterated by time, counted and marked with a user status. When all
+sectors are full, the oldest sector is erased (rollover, can be disabled).
+
+The timestamp of each entry is returned by the `get_time` callback, which must
+increase with every entry. Without a real-time clock use a counter that
+continues from `FDB_TSDB_CTRL_GET_LAST_TIME` after a reboot.
+"""
+
+    def prepare(self, module, options):
+        return True
+
+    def build(self, env):
+        env.outbasepath = "modm/ext/flashdb"
+        env.copy("flashdb/src/fdb_tsdb.c", "fdb_tsdb.c")
+
+# -----------------------------------------------------------------------------
+def init(module):
+    module.name = ":flashdb"
+    module.description = FileReader("flashdb.md")
+
+def prepare(module, options):
+    module.add_submodule(KvdbModule())
+    module.add_submodule(TsdbModule())
+    module.depends(":architecture:assert")
+    return True
+
+def build(env):
+    env.collect(":build:path.include", "modm/ext/flashdb")
+    env.outbasepath = "modm/ext/flashdb"
+
+    for file in ["fdb.c", "fdb_utils.c"]:
+        env.copy("flashdb/src/" + file, file)
+    for file in ["flashdb.h", "fdb_def.h", "fdb_low_lvl.h"]:
+        env.copy("flashdb/inc/" + file, file)
+    env.copy("flashdb/LICENSE", "LICENSE")
+
+    has_flash = env.has_module(":platform:flash")
+    write_bits = 8 * env.query(":platform:flash:write_size") if has_flash else 1
+    env.substitutions = {
+        "kvdb": env.has_module(":flashdb:kvdb"),
+        "tsdb": env.has_module(":flashdb:tsdb"),
+        # FlashDB supports only these, the F0/F1/F3 with 16 bits use 32 bits
+        "write_gran": next(g for g in [1, 8, 32, 64, 128, 256] if g >= write_bits),
+        "flash": has_flash,
+        # The erased flash of the STM32L0/L1 reads as zero
+        "invert": has_flash and env[":target"].identifier.family in ["l0", "l1"],
+        "log": env.has_module(":debug"),
+    }
+    env.template("fdb_cfg.h.in")
+    env.copy("fal.h")
+    env.template("flashdb.hpp.in")
+    env.template("flashdb.cpp.in")
