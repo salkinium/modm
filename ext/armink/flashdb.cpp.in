@@ -95,8 +95,22 @@ static_assert(FDB_WRITE_GRAN >= Flash::WriteSize * 8, "FDB_WRITE_GRAN is smaller
 static int
 flash_read(const fal_partition *part, uint32_t addr, uint8_t *buf, size_t size)
 {
-	// A word with a double ECC error is copied anyway, the CRC of FlashDB rejects it
-	(void) Flash::read(Flash::OriginAddr + part->offset + addr, buf, size);
+	const uintptr_t start = Flash::OriginAddr + part->offset + addr;
+	if (Flash::read(start, buf, size))
+	{
+		// A word with a double ECC error, e.g. after a power loss during
+		// programming, reads raw or garbage bytes, which could even look erased:
+		// read it as non-erased and invalid instead.
+		for (size_t pos{0}; pos < size;)
+		{
+			const uintptr_t word = (start + pos) & ~uintptr_t(Flash::WriteSize - 1);
+			const size_t end = std::min<size_t>(size, word + Flash::WriteSize - start);
+			uint8_t buffer[Flash::WriteSize];
+			if (Flash::read(word, buffer, Flash::WriteSize))
+				std::memset(buf + pos, uint8_t(~Flash::ErasedValue), end - pos);
+			pos = end;
+		}
+	}
 %% if invert
 	// FlashDB expects the erased flash to read as 0xff
 	for (size_t ii{0}; ii < size; ii++) buf[ii] = ~buf[ii];

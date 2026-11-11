@@ -13,6 +13,7 @@
 #include <modm/platform/flash/flash.hpp>
 #include <zephyr/drivers/flash.h>
 #include <algorithm>
+#include <cstring>
 
 using modm::platform::Flash;
 
@@ -22,8 +23,21 @@ namespace
 int
 read(const device *, off_t offset, void *data, size_t size)
 {
-	// A word with a double ECC error is copied anyway, the CRCs of ZMS reject it
-	(void) Flash::read(Flash::OriginAddr + offset, data, size);
+	const uintptr_t addr = Flash::OriginAddr + offset;
+	if (not Flash::read(addr, data, size)) return 0;
+	// A word with a double ECC error, e.g. after a power loss during programming,
+	// reads raw or garbage bytes, which could even look erased: read it as
+	// non-erased and invalid instead.
+	auto *const bytes = static_cast<uint8_t *>(data);
+	for (size_t pos{0}; pos < size;)
+	{
+		const uintptr_t word = (addr + pos) & ~uintptr_t(Flash::WriteSize - 1);
+		const size_t end = std::min<size_t>(size, word + Flash::WriteSize - addr);
+		uint8_t buffer[Flash::WriteSize];
+		if (Flash::read(word, buffer, Flash::WriteSize))
+			std::memset(bytes + pos, uint8_t(~Flash::ErasedValue), end - pos);
+		pos = end;
+	}
 	return 0;
 }
 
