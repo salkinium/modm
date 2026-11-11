@@ -1120,7 +1120,10 @@ static int zms_rebuild_close_ate(struct zms_fs *fs, uint64_t close_addr,
 		last = addr;
 	}
 	if (!last) {
-		return 0;
+		/* Closed without any valid ATE, e.g. only a damaged gc_done ATE:
+		 * point to the first ATE, walking from there finds nothing.
+		 */
+		last = close_addr - fs->ate_size;
 	}
 
 	LOG_INF("Rebuilding the damaged close ATE at %llx", close_addr);
