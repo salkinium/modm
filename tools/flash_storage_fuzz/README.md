@@ -47,7 +47,8 @@ completely, units after it are not touched)
   programmed. Units of all ones data are assumed to behave the same (not
   measured, the hardware test used `0x5a`).
 
-**The realistic model for STM32 with ECC is `cut=stm32 erase=bits prog=content when=time`.**
+**The realistic model for STM32 with ECC is `cut=stm32 erase=bits prog=stm32 when=time`**
+(`prog=content` for H5/H7, `skipff=1` if the driver skips units of all ones).
 
 `erase`: what an interrupted erase leaves
 - `atomic`: the sector is unchanged, the erase did not start.
@@ -58,6 +59,11 @@ completely, units after it are not touched)
 - `content`: if the unit does not read as erased, like the Zephyr flash simulator
   without `CONFIG_FLASH_SIMULATOR_DOUBLE_WRITES` (ECC flash with an erased check
   by reading, STM32 PROGERR).
+- `stm32`: like `content`, and also if the unit was programmed with all ones
+  before (completed, or interrupted after the first 20%): measured on L4 and U5,
+  the word reads as erased but the next program fails with PROGERR. H5/H7
+  accept it. `skipff=1` emulates a driver that does not program units of all
+  ones, which avoids this.
 - `touched`: if anything programmed the unit since the erase, even if it still
   reads as erased. Not realistic: on no measured STM32 did a word that reads
   as erased fail to program.

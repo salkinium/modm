@@ -22,7 +22,7 @@
 // ---------------------------------------------------------------- the model
 enum cut_model { CUT_UNIT, CUT_PREFIX, CUT_BITS, CUT_STM32 }; // what an interrupted write leaves
 enum erase_model { ERASE_ATOMIC, ERASE_BITS };       // what an interrupted erase leaves
-enum prog_model { PROG_NOR, PROG_CONTENT, PROG_TOUCHED }; // when programming a unit fails
+enum prog_model { PROG_NOR, PROG_CONTENT, PROG_TOUCHED, PROG_STM32 }; // when programming a unit fails
 enum when_model { WHEN_OPS, WHEN_TIME };             // when the power fails
 
 static struct
@@ -35,6 +35,7 @@ static struct
 	size_t sector;    // erase unit in bytes
 	size_t size;      // flash size in bytes
 	uint32_t write_us, erase_us; // duration per unit and per sector
+	int skipff;       // the driver does not program units of all ones
 } model = {CUT_PREFIX, ERASE_BITS, PROG_NOR, WHEN_OPS, 8, 2048, 8192, 80, 20000};
 
 // ---------------------------------------------------------------- the flash
@@ -43,6 +44,7 @@ static uint8_t flash[FLASH_MAX];
 static uint8_t touched[FLASH_MAX];     // unit programmed since erase (PROG_TOUCHED)
 static uint8_t interrupted[FLASH_MAX]; // unit touched by an interrupted operation
 static uint8_t ecc_flag[FLASH_MAX];    // unit reads with ECCC/ECCD (CUT_STM32), cannot be programmed
+static uint8_t ffprog[FLASH_MAX];      // unit programmed with all ones, cannot be programmed (PROG_STM32)
 static long power_left = -1;
 static int trace;           // operations or microseconds until power loss
 static jmp_buf power_loss;
@@ -55,6 +57,12 @@ static struct
 
 static uint32_t rng = 1;
 static uint32_t rnd(uint32_t max) { rng ^= rng << 13; rng ^= rng >> 17; rng ^= rng << 5; return max ? rng % max : 0; }
+
+static int all_ones(const uint8_t *b)
+{
+	for (size_t i = 0; i < model.unit; i++) if (b[i] != 0xff) return 0;
+	return 1;
+}
 
 static int unit_erased(uint32_t u)
 {
@@ -92,8 +100,10 @@ static int emu_write(uint32_t a, const void *data, size_t n)
 		printf("FATAL: unaligned write 0x%x+%zu\n", (unsigned)a, n); exit(2);
 	}
 	for (uint32_t u = a / model.unit; u < (a + n) / model.unit; u++) {
+		if (model.skipff && all_ones(b + (u * model.unit - a))) continue; // not programmed
 		const int fails = (model.prog == PROG_CONTENT && (!unit_erased(u) || ecc_flag[u])) ||
-						  (model.prog == PROG_TOUCHED && touched[u]);
+						  (model.prog == PROG_TOUCHED && touched[u]) ||
+						  (model.prog == PROG_STM32 && (!unit_erased(u) || ecc_flag[u] || ffprog[u]));
 		if (fails) {
 			if (trace) printf("    write 0x%04x+%zu FAILED at 0x%04x%s\n", (unsigned)a, n, (unsigned)(u * model.unit), interrupted[u] ? " (residue)" : "");
 			if (interrupted[u]) stats.residue_writes++; else stats.double_writes++;
@@ -104,11 +114,20 @@ static int emu_write(uint32_t a, const void *data, size_t n)
 	if (trace) printf("    write 0x%04x+%zu%s\n", (unsigned)a, n, cut < 0 ? "" : " CUT");
 	const size_t whole = cut < 0 ? n : (size_t)cut * model.unit;
 	for (size_t i = 0; i < whole; i++) flash[a + i] &= b[i];
-	for (size_t u = a / model.unit; u < (a + whole) / model.unit; u++) touched[u] = 1;
+	for (size_t u = a / model.unit; u < (a + whole) / model.unit; u++) {
+		const int ones = all_ones(b + (u * model.unit - a));
+		if (model.skipff && ones) continue;
+		touched[u] = 1;
+		ffprog[u] |= ones; // L4/U5: PROGERR on the next program, although it reads erased
+	}
 	stats.bytes += whole;
 	if (cut < 0) return 0;
 	// the interrupted unit
 	const uint32_t u = (a + whole) / model.unit, base = u * model.unit;
+	if (model.skipff && all_ones(b + whole)) { // the driver did not program it
+		stats.op = "write"; stats.addr = base;
+		longjmp(power_loss, 1);
+	}
 	switch (model.cut) {
 	case CUT_UNIT: break; // nothing of this unit was programmed
 	case CUT_PREFIX: { // the first bytes, like the Zephyr flash simulator
@@ -132,6 +151,8 @@ static int emu_write(uint32_t a, const void *data, size_t n)
 		touched[u] = 1; // the program pulse was applied
 		break;
 	}
+	// L4/U5: only an all ones program interrupted early stays programmable
+	if (all_ones(b + whole)) ffprog[u] = model.cut == CUT_STM32 ? rnd(100) >= 20 : 1;
 	interrupted[u] = 1;
 	stats.op = "write"; stats.addr = base;
 	longjmp(power_loss, 1);
@@ -147,6 +168,7 @@ static int emu_erase(uint32_t a, size_t n)
 	memset(touched + a / model.unit, 0, whole / model.unit);
 	memset(interrupted + a / model.unit, 0, whole / model.unit);
 	memset(ecc_flag + a / model.unit, 0, whole / model.unit);
+	memset(ffprog + a / model.unit, 0, whole / model.unit);
 	stats.erases += whole / model.sector;
 	if (cut < 0) return 0;
 	const uint32_t s = a + whole;
@@ -182,7 +204,7 @@ int main(int argc, char **argv)
 {
 	unsigned long seeds = 10, first = 1, cap = 1000, wear = 0;
 	static const char *const cuts[] = {"unit", "prefix", "bits", "stm32", 0}, *const erases[] = {"atomic", "bits", 0},
-		*const progs[] = {"nor", "content", "touched", 0}, *const whens[] = {"ops", "time", 0};
+		*const progs[] = {"nor", "content", "touched", "stm32", 0}, *const whens[] = {"ops", "time", 0};
 	for (int i = 1; i < argc; i++) {
 		int v;
 		if (parse(argv[i], "cut", cuts, &v)) model.cut = v;
@@ -194,12 +216,13 @@ int main(int argc, char **argv)
 		else if (!strncmp(argv[i], "seed=", 5)) first = strtoul(argv[i] + 5, 0, 0), seeds = 1;
 		else if (!strncmp(argv[i], "cap=", 4)) cap = strtoul(argv[i] + 4, 0, 0);
 		else if (!strncmp(argv[i], "trace=", 6)) trace = strtoul(argv[i] + 6, 0, 0);
+		else if (!strncmp(argv[i], "skipff=", 7)) model.skipff = strtoul(argv[i] + 7, 0, 0);
 		else if (!strncmp(argv[i], "wear=", 5)) wear = strtoul(argv[i] + 5, 0, 0);
 		else { printf("unknown %s\n", argv[i]); return 2; }
 	}
 	setvbuf(stdout, NULL, _IONBF, 0);
-	printf("%s cut=%s erase=%s prog=%s when=%s unit=%zu: ", LIB_NAME, cuts[model.cut], erases[model.erase],
-		   progs[model.prog], whens[model.when], model.unit);
+	printf("%s cut=%s erase=%s prog=%s when=%s unit=%zu%s: ", LIB_NAME, cuts[model.cut], erases[model.erase],
+		   progs[model.prog], whens[model.when], model.unit, model.skipff ? " skipff=1" : "");
 
 	if (wear) {
 		// Without power loss: wear and double writes of the library itself
@@ -219,7 +242,7 @@ int main(int argc, char **argv)
 		rng = seed * 2654435761u;
 		memset(flash, 0xff, sizeof flash); memset(touched, 0, sizeof touched);
 		memset(interrupted, 0, sizeof interrupted); memset(&stats, 0, sizeof stats);
-		memset(ecc_flag, 0, sizeof ecc_flag);
+		memset(ecc_flag, 0, sizeof ecc_flag); memset(ffprog, 0, sizeof ffprog);
 		failure[0] = 0; power_left = -1;
 		lib_format();
 		unsigned long resets = 0;
