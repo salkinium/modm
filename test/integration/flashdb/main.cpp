@@ -355,6 +355,8 @@ int
 main()
 {
 	Board::initialize();
+	// A failed run must not restart and wear the flash further
+	if (state.magic == ~Magic) return finishTest(false);
 	const bool fresh = state.magic != Magic;
 	if (fresh) state = State{Magic, 0x12345678, {}, NoKey, 0, 0, 0, 0, 0, 0, 0};
 	else state.cycles++;
@@ -382,7 +384,7 @@ main()
 	}
 	init(fresh);
 	if (not fresh) verify();
-	if (failed) { state.magic = 0; return finishTest(false); }
+	if (failed) { state.magic = ~Magic; return finishTest(false); }
 
 #ifdef FLASHDB_POWER_LOSS_CYCLES
 	if (fresh)
@@ -396,8 +398,9 @@ main()
 		Iwdg::initialize(Iwdg::Prescaler::Div32, 1 + random(2000));
 		Iwdg::trigger();
 		while (not failed) step();
-		state.magic = 0;
-		return finishTest(false);
+		state.magic = ~Magic;
+		printTestResult(false);
+		while (true) Iwdg::trigger();
 	}
 #else
 	const auto start = modm::Clock::now();

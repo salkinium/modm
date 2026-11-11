@@ -2,7 +2,7 @@
 //
 //   F=ext/armink/flashdb
 //   printf '#define FDB_USING_KVDB\n#define FDB_USING_TSDB\n#define FDB_USING_FAL_MODE\n#define FDB_PRINT(...) ((void)0)\n' > fdb_cfg.h
-//   cc -O2 -DFDB_WRITE_GRAN=64 -DECC=1 -I. -Iext/armink -I$F/inc -o fuzz test/integration/flashdb/host_fuzz.c \
+//   cc -O2 -DFDB_WRITE_GRAN=64 -DECC=1 -I. -Iext/armink -I$F/inc -o fuzz ext/armink/host_fuzz.c \
 //      $F/src/fdb.c $F/src/fdb_kvdb.c $F/src/fdb_tsdb.c $F/src/fdb_utils.c && ./fuzz 3000 1
 //
 // A write or erase is interrupted after a random number of operations:
@@ -23,7 +23,8 @@ static uint8_t flash[4 * SEC];
 static uint8_t written[4 * SEC / WG]; // ECC: word programmed since erase
 static long ops_left = -1;            // operations until the power loss
 static jmp_buf reboot;
-static unsigned long progerr;
+static unsigned long progerr, kv_erases, kv_bytes, kv_updates;
+static int no_logs;
 static const char *cut_op = "";
 static uint32_t cut_addr;
 
@@ -42,6 +43,7 @@ static int wr(const struct fal_partition *p, uint32_t a, const uint8_t *b, size_
 		for (size_t w = a / WG; w < (a + n) / WG; w++) if (written[w]) { progerr++; return -1; }
 	}
 	for (size_t i = 0; i < cut; i++) flash[a + i] &= b[i];
+	if (a < 2 * SEC) kv_bytes += cut;
 	if (ECC) for (size_t w = a / WG; w < (a + cut + WG - 1) / WG; w++) written[w] = 1;
 	if (cut < n) { cut_op = "write"; cut_addr = a; longjmp(reboot, 1); }
 	return n;
@@ -55,6 +57,7 @@ static int er(const struct fal_partition *p, uint32_t a, size_t n)
 		longjmp(reboot, 1);
 	}
 	memset(flash + a, 0xff, n);
+	if (a < 2 * SEC) kv_erases += n / SEC;
 	memset(written + a / WG, 0, n / WG);
 	return n;
 }
@@ -160,14 +163,16 @@ static void step(void)
 		fdb_err_t e = fdb_kv_set_blob(&kvdb, name, fdb_blob_make(&blob, v, n));
 		if (e != FDB_NO_ERR) FAIL("%s: set failed %d\n", name, e);
 		seeds[k] = seed; pending_key = -1;
+		kv_updates++;
 	} else if (op < 7) {
 		pending_seed = 0; pending_key = k;
 		fdb_err_t e = fdb_kv_del(&kvdb, name);
 		if (e != FDB_NO_ERR && !(e == FDB_KV_NAME_ERR && !seeds[k])) FAIL("%s: del failed %d\n", name, e);
 		seeds[k] = 0; pending_key = -1;
+		kv_updates++;
 	}
 	verify_key(k);
-	if (rnd(4) == 0) {
+	if (!no_logs && rnd(4) == 0) {
 		uint8_t l[MAXL];
 		size_t n = fill(log_time + 1, l, MAXL);
 		fdb_err_t e = fdb_tsl_append(&tsdb, fdb_blob_make(&blob, l, n));
@@ -201,6 +206,13 @@ int main(int argc, char **argv)
 		init();
 		verify();
 	}
+	// Wear of the KVDB without power loss and without logs
+	unsigned long e0 = kv_erases, b0 = kv_bytes, u0 = kv_updates;
+	ops_left = -1;
+	no_logs = 1;
+	for (int i = 0; i < 20000 && failures < 20; i++) step();
+	if (kv_updates > u0) printf("KVDB per 1000 updates: %.1f erases, %.0f bytes written\n",
+		1000.0 * (kv_erases - e0) / (kv_updates - u0), 1000.0 * (kv_bytes - b0) / (kv_updates - u0));
 	printf("GRAN %d ECC %d: %lu cycles, %lu steps, %lu logs, recovered %lu keys %lu logs, "
 		   "%lu interrupted logs seen, %lu PROGERR, %lu failures\n", FDB_WRITE_GRAN, ECC, cycles, steps,
 		   (unsigned long)log_time, kv_recovered, ts_recovered, ts_prewrite, progerr, failures);
