@@ -1,0 +1,36 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+#
+# Copyright (c) 2026, Niklas Hauser
+#
+# This file is part of the modm project.
+#
+# This Source Code Form is subject to the terms of the Mozilla Public
+# License, v. 2.0. If a copy of the MPL was not distributed with this
+# file, You can obtain one at http://mozilla.org/MPL/2.0/.
+# -----------------------------------------------------------------------------
+
+def init(module):
+    module.name = ":zephyr-zms"
+    module.description = FileReader("zms.md")
+
+def prepare(module, options):
+    module.add_option(
+        NumericOption(name="lookup_cache", minimum=0, maximum=1024, default=32,
+                      description="Entries of the ID lookup cache in each `zms_fs`, 8 bytes each"))
+    return True
+
+def build(env):
+    env.collect(":build:path.include", "modm/ext/zephyr-zms")
+    env.outbasepath = "modm/ext/zephyr-zms"
+    zms = env.copy("zms/zms.c", "zms.c")
+    # Zephyr does not compile with -Wsign-compare
+    env.collect(":build:ccflags", "-Wno-sign-compare", operations=zms)
+    env.copy("zms/zms_priv.h", "zms_priv.h")
+    env.copy("zms_port.c")
+    env.copy("shim/zephyr", "zephyr")
+    env.substitutions = {"lookup_cache": env["lookup_cache"]}
+    env.template("zms_config.h.in")
+    if env.has_module(":platform:flash"):
+        env.template("zms.hpp.in")
+        env.template("flash.cpp.in")

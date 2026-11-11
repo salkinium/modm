@@ -1,0 +1,30 @@
+/*
+ * Copyright (c) 2026, Niklas Hauser
+ *
+ * This file is part of the modm project.
+ *
+ * This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
+ */
+// ----------------------------------------------------------------------------
+
+#pragma once
+#include <zephyr/kvss/zms.h>
+
+namespace modm::zms
+{
+
+/// The internal flash as Zephyr flash device. Offsets are relative to the flash
+/// origin, the write block is Flash::WriteSize and the erase value Flash::ErasedValue.
+const struct device *
+flash();
+
+/// Prepares fs for zms_mount() with sector_count sectors of the internal flash
+/// from offset on. Each sector is one page, or the smallest number of whole pages
+/// of at least min_sector_size bytes.
+/// @return false if the pages are not equally sized
+bool
+setup(zms_fs &fs, uint32_t offset, uint32_t sector_count, uint32_t min_sector_size = 0);
+
+}	// namespace modm::zms
