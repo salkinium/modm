@@ -1,0 +1,5 @@
+# FlashDB computes offsets with a hand-made offsetof on a null pointer, which
+# UBSan reports at -O1 even with -fno-sanitize=null
+[undefined]
+src:*/flashdb/src/fdb_kvdb.c
+src:*/flashdb/src/fdb_tsdb.c

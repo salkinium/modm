@@ -56,7 +56,30 @@ static struct
 } stats;
 
 static uint32_t rng = 1;
-static uint32_t rnd(uint32_t max) { rng ^= rng << 13; rng ^= rng >> 17; rng ^= rng << 5; return max ? rng % max : 0; }
+static uint32_t xorshift(uint32_t *x) { *x ^= *x << 13; *x ^= *x >> 17; *x ^= *x << 5; return *x; }
+#ifdef LIBFUZZER
+// The fuzzer input decides the structure: operations, values, when the power
+// fails and the kind of damage. The damaged bits themselves come from drnd(),
+// so that the fuzzer cannot construct CRC collisions byte by byte.
+static const uint8_t *input;
+static size_t input_left;
+static int input_end;
+static uint32_t drng = 1;
+static uint32_t rnd(uint32_t max)
+{
+	if (!max) return 0;
+	const size_t bytes = max <= 0x100 ? 1 : max <= 0x10000 ? 2 : 4;
+	if (input_left < bytes) { input_end = 1; input_left = 0; return 0; }
+	uint32_t v = 0;
+	for (size_t i = 0; i < bytes; i++) v = v << 8 | *input++;
+	input_left -= bytes;
+	return v % max;
+}
+static uint32_t drnd(uint32_t max) { return xorshift(&drng) % max; }
+#else
+static uint32_t rnd(uint32_t max) { return max ? xorshift(&rng) % max : 0; }
+#define drnd rnd
+#endif
 
 static int all_ones(const uint8_t *b)
 {
@@ -140,14 +163,14 @@ static int emu_write(uint32_t a, const void *data, size_t n)
 		const uint32_t r = rnd(100);
 		if (r < 20) break;
 		for (size_t i = 0; i < model.unit; i++)
-			flash[base + i] &= b[whole + i] | (r < 70 ? 0 : (uint8_t)rnd(256));
+			flash[base + i] &= b[whole + i] | (r < 70 ? 0 : (uint8_t)drnd(256));
 		touched[u] = 1;
 		// a word that reads as erased had no ECC flag on the hardware and could be programmed
 		ecc_flag[u] = r >= 70 && !unit_erased(u);
 		break;
 	}
 	case CUT_BITS: // a random subset of the bits that should be cleared
-		for (size_t i = 0; i < model.unit; i++) flash[base + i] &= b[whole + i] | (uint8_t)rnd(256);
+		for (size_t i = 0; i < model.unit; i++) flash[base + i] &= b[whole + i] | (uint8_t)drnd(256);
 		touched[u] = 1; // the program pulse was applied
 		break;
 	}
@@ -173,7 +196,7 @@ static int emu_erase(uint32_t a, size_t n)
 	if (cut < 0) return 0;
 	const uint32_t s = a + whole;
 	if (model.erase == ERASE_BITS) {
-		for (size_t i = 0; i < model.sector; i++) flash[s + i] |= rnd(256);
+		for (size_t i = 0; i < model.sector; i++) flash[s + i] |= drnd(256);
 		for (size_t u = s / model.unit; u < (s + model.sector) / model.unit; u++)
 			interrupted[u] = 1, ecc_flag[u] = !unit_erased(u); // partially erased words fail ECC
 	}
@@ -200,29 +223,113 @@ static int parse(const char *arg, const char *name, const char *const *values, i
 	printf("unknown %s\n", arg); exit(2);
 }
 
+static const char *const cuts[] = {"unit", "prefix", "bits", "stm32", 0}, *const erases[] = {"atomic", "bits", 0},
+	*const progs[] = {"nor", "content", "touched", "stm32", 0}, *const whens[] = {"ops", "time", 0};
+static unsigned long nseeds = 10, first_seed = 1, cap = 1000, wear = 0;
+static int nopower;
+
+/// @return 0 for an unknown option
+static int option(const char *arg)
+{
+	int v;
+	if (parse(arg, "cut", cuts, &v)) model.cut = v;
+	else if (parse(arg, "erase", erases, &v)) model.erase = v;
+	else if (parse(arg, "prog", progs, &v)) model.prog = v;
+	else if (parse(arg, "when", whens, &v)) model.when = v;
+	else if (!strncmp(arg, "unit=", 5)) model.unit = strtoul(arg + 5, 0, 0);
+	else if (!strncmp(arg, "seeds=", 6)) nseeds = strtoul(arg + 6, 0, 0);
+	else if (!strncmp(arg, "seed=", 5)) first_seed = strtoul(arg + 5, 0, 0), nseeds = 1;
+	else if (!strncmp(arg, "cap=", 4)) cap = strtoul(arg + 4, 0, 0);
+	else if (!strncmp(arg, "trace=", 6)) trace = strtoul(arg + 6, 0, 0);
+	else if (!strncmp(arg, "skipff=", 7)) model.skipff = strtoul(arg + 7, 0, 0);
+	else if (!strncmp(arg, "wear=", 5)) wear = strtoul(arg + 5, 0, 0);
+	else if (!strncmp(arg, "nopower=", 8)) nopower = strtoul(arg + 8, 0, 0);
+	else return 0;
+	return 1;
+}
+
+static void print_model(void)
+{
+	printf("%s cut=%s erase=%s prog=%s when=%s unit=%zu%s%s: ", LIB_NAME, cuts[model.cut], erases[model.erase],
+		   progs[model.prog], whens[model.when], model.unit, model.skipff ? " skipff=1" : "",
+		   nopower ? " nopower=1" : "");
+}
+
+static void flash_reset(void)
+{
+	memset(flash, 0xff, sizeof flash); memset(touched, 0, sizeof touched);
+	memset(interrupted, 0, sizeof interrupted); memset(&stats, 0, sizeof stats);
+	memset(ecc_flag, 0, sizeof ecc_flag); memset(ffprog, 0, sizeof ffprog);
+	failure[0] = 0; power_left = -1;
+}
+
+#ifdef LIBFUZZER
+// ---------------------------------------------------------------- libFuzzer
+// The model comes from the FUZZ_MODEL environment variable, e.g.
+// FUZZ_MODEL="cut=stm32 erase=bits prog=stm32 when=time unit=8 skipff=1".
+// Every input is one run from erased flash with up to 32 power losses.
+static int run_input(const uint8_t *data, size_t size, uint32_t damage_seed)
+{
+	input = data; input_left = size; input_end = 0; drng = damage_seed * 2654435761u | 1;
+	flash_reset();
+	lib_format();
+	volatile unsigned resets = 0;
+	while (!failure[0] && !input_end && resets < 32) {
+		if (setjmp(power_loss) == 0) {
+			const uint32_t choice = rnd(256);
+			power_left = (nopower || choice < 32) ? -1 :
+						 model.when == WHEN_OPS ? (long)rnd(200) : (long)rnd(2000000);
+			while (!failure[0] && !input_end) lib_step();
+			power_left = -1;
+			break;
+		}
+		power_left = -1;
+		resets++;
+		if (trace) printf("  --- reset %u\n", resets);
+		if (lib_mount()) break;
+		lib_verify();
+	}
+	// Everything must also survive a regular reboot
+	if (!failure[0]) {
+		if (trace) printf("  --- reboot\n");
+		if (!lib_mount()) lib_verify();
+	}
+	return failure[0] != 0;
+}
+
+int LLVMFuzzerInitialize(int *argc, char ***argv)
+{
+	(void)argc; (void)argv;
+	char buf[512];
+	const char *env = getenv("FUZZ_MODEL");
+	snprintf(buf, sizeof buf, "%s", env ? env : "");
+	for (char *arg = strtok(buf, " "); arg; arg = strtok(NULL, " "))
+		if (!option(arg)) { printf("unknown %s\n", arg); exit(2); }
+	setvbuf(stdout, NULL, _IONBF, 0);
+	print_model();
+	printf("\n");
+	return 0;
+}
+
+int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
+{
+	if (!run_input(data, size, 1)) return 0;
+	char first_failure[sizeof failure];
+	memcpy(first_failure, failure, sizeof failure);
+	// A failure that needs particular damaged bits, like a CRC collision, does
+	// not repeat with other damage: only report the robust ones.
+	int fails = 1;
+	for (uint32_t seed = 2; seed <= 8; seed++) fails += run_input(data, size, seed);
+	if (fails < 6) return 0;
+	printf("FAILURE with %d of 8 damage seeds: %s\n", fails, first_failure);
+	abort(); // libFuzzer saves the input on SIGABRT, not on SIGTRAP
+}
+#else
 int main(int argc, char **argv)
 {
-	unsigned long seeds = 10, first = 1, cap = 1000, wear = 0;
-	static const char *const cuts[] = {"unit", "prefix", "bits", "stm32", 0}, *const erases[] = {"atomic", "bits", 0},
-		*const progs[] = {"nor", "content", "touched", "stm32", 0}, *const whens[] = {"ops", "time", 0};
-	for (int i = 1; i < argc; i++) {
-		int v;
-		if (parse(argv[i], "cut", cuts, &v)) model.cut = v;
-		else if (parse(argv[i], "erase", erases, &v)) model.erase = v;
-		else if (parse(argv[i], "prog", progs, &v)) model.prog = v;
-		else if (parse(argv[i], "when", whens, &v)) model.when = v;
-		else if (!strncmp(argv[i], "unit=", 5)) model.unit = strtoul(argv[i] + 5, 0, 0);
-		else if (!strncmp(argv[i], "seeds=", 6)) seeds = strtoul(argv[i] + 6, 0, 0);
-		else if (!strncmp(argv[i], "seed=", 5)) first = strtoul(argv[i] + 5, 0, 0), seeds = 1;
-		else if (!strncmp(argv[i], "cap=", 4)) cap = strtoul(argv[i] + 4, 0, 0);
-		else if (!strncmp(argv[i], "trace=", 6)) trace = strtoul(argv[i] + 6, 0, 0);
-		else if (!strncmp(argv[i], "skipff=", 7)) model.skipff = strtoul(argv[i] + 7, 0, 0);
-		else if (!strncmp(argv[i], "wear=", 5)) wear = strtoul(argv[i] + 5, 0, 0);
-		else { printf("unknown %s\n", argv[i]); return 2; }
-	}
+	for (int i = 1; i < argc; i++) if (!option(argv[i])) { printf("unknown %s\n", argv[i]); return 2; }
 	setvbuf(stdout, NULL, _IONBF, 0);
-	printf("%s cut=%s erase=%s prog=%s when=%s unit=%zu%s: ", LIB_NAME, cuts[model.cut], erases[model.erase],
-		   progs[model.prog], whens[model.when], model.unit, model.skipff ? " skipff=1" : "");
+	print_model();
 
 	if (wear) {
 		// Without power loss: wear and double writes of the library itself
@@ -238,12 +345,9 @@ int main(int argc, char **argv)
 	}
 
 	unsigned long survived[1000], capped = 0;
-	for (unsigned long seed = first; seed < first + seeds && seed - first < 1000; seed++) {
+	for (unsigned long seed = first_seed; seed < first_seed + nseeds && seed - first_seed < 1000; seed++) {
 		rng = seed * 2654435761u;
-		memset(flash, 0xff, sizeof flash); memset(touched, 0, sizeof touched);
-		memset(interrupted, 0, sizeof interrupted); memset(&stats, 0, sizeof stats);
-		memset(ecc_flag, 0, sizeof ecc_flag); memset(ffprog, 0, sizeof ffprog);
-		failure[0] = 0; power_left = -1;
+		flash_reset();
 		lib_format();
 		unsigned long resets = 0;
 		while (!failure[0] && resets < cap) {
@@ -258,15 +362,16 @@ int main(int argc, char **argv)
 			if (lib_mount()) break;
 			lib_verify();
 		}
-		survived[seed - first] = resets;
+		survived[seed - first_seed] = resets;
 		if (!failure[0]) capped++;
 		else printf("\n  seed %lu after %lu resets (%s 0x%x, %lu double, %lu residue): %s", seed, resets,
 					stats.op ? stats.op : "-", (unsigned)stats.addr, stats.double_writes,
 					stats.residue_writes, failure);
 	}
 	unsigned long min = cap;
-	for (unsigned long s = 0; s < seeds; s++) if (survived[s] < min) min = survived[s];
+	for (unsigned long s = 0; s < nseeds; s++) if (survived[s] < min) min = survived[s];
 	printf("\n  => %lu of %lu seeds survived %lu resets, first failure after %lu resets\n",
-		   capped, seeds, cap, capped == seeds ? cap : min);
-	return capped != seeds;
+		   capped, nseeds, cap, capped == nseeds ? cap : min);
+	return capped != nseeds;
 }
+#endif

@@ -82,3 +82,27 @@ written unit again: a bug on ECC flash even without power loss) or `residue`
 - Interrupted erases are not measured on hardware yet, `erase=bits` is a guess.
 - Bits that read correctly but are weakly programmed and flip later.
 - Power loss during the reboot itself (mount and recovery run uninterrupted).
+
+## Coverage guided with libFuzzer
+
+`build.sh` also builds `zms-lf`, `fdb8-lf` and `golden-lf` with libFuzzer,
+ASan and UBSan if a Homebrew LLVM is installed (Apple clang has no libFuzzer
+runtime). The fuzzer input replaces the random numbers that choose the
+structure: operations, IDs, values (ZMS up to 1800 bytes, FlashDB up to 256),
+when the power fails and which kind of damage the interrupted unit gets. The
+damaged bits themselves come from a separate generator, so that the fuzzer
+cannot build CRC collisions byte by byte; a failure is only reported if it
+repeats with at least 6 of 8 damage seeds. Every input is one run from erased
+flash with up to 32 power losses and a final regular reboot.
+
+```sh
+mkdir corpus crashes
+FUZZ_MODEL="cut=stm32 erase=bits prog=stm32 when=time unit=8 skipff=1" \
+    build/zms-lf -max_total_time=1800 -max_len=4096 -artifact_prefix=crashes/ corpus
+FUZZ_MODEL="unit=8 nopower=1" build/fdb8-lf ...            # algorithm only, no power loss
+FUZZ_MODEL="... trace=1" build/zms-lf crashes/crash-...     # replay with every flash operation
+build/zms-lf -minimize_crash=1 -max_total_time=60 crashes/crash-...
+```
+
+A write may fail with `-ENOSPC` only if the live values (plus 32 bytes each)
+exceed `lib_capacity()`: one sector for ZMS, half a sector for FlashDB.

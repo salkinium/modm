@@ -15,13 +15,16 @@
 #pragma once
 
 #define KEYS 16
-#define MAXV 64
+#ifndef MAXV
+#define MAXV 64  // longer values: 1/8 of them up to MAXV, the others up to 64 bytes
+#endif
 #define MAXL 128
 
 static ssize_t kv_read(int key, uint8_t *value);   // length or -ENOENT
 static int kv_write(int key, const uint8_t *value, size_t length);
 static int kv_delete(int key);
 static int log_append(void);
+static size_t lib_capacity(void);              // value bytes that always fit
 
 static uint32_t mix(uint32_t x) { x ^= x >> 16; x *= 0x7feb352d; x ^= x >> 15; x *= 0x846ca68b; x ^= x >> 16; return x; }
 static size_t fill(uint32_t seed, uint8_t *b, size_t max)
@@ -31,6 +34,7 @@ static size_t fill(uint32_t seed, uint8_t *b, size_t max)
 	if (seed % 8 == 0) memset(b + n / 2, 0xff, n - n / 2);
 	return n;
 }
+static size_t fill_value(uint32_t seed, uint8_t *b) { return fill(seed, b, (seed & 0x70) && MAXV > 64 ? 64 : MAXV); }
 
 static uint32_t seeds[KEYS];   // 0 = deleted
 static int pending_key = -1;   // the key of an interrupted update
@@ -44,7 +48,7 @@ static int matches(uint32_t seed, const uint8_t *v, ssize_t n)
 {
 	uint8_t e[MAXV];
 	if (!seed) return n == -ENOENT;
-	return n == (ssize_t)fill(seed, e, MAXV) && !memcmp(v, e, n);
+	return n == (ssize_t)fill_value(seed, e) && !memcmp(v, e, n);
 }
 
 /// Only the interrupted key may have its old or its new value
@@ -69,10 +73,19 @@ static void model_step(int with_logs)
 	if (trace) printf("  step key %d op %u\n", k, op);
 	if (op < 6) {
 		const uint32_t seed = rnd(0xfffffffe) + 1;
-		const size_t n = fill(seed, v, MAXV);
+		const size_t n = fill_value(seed, v);
 		pending_seed = seed; pending_key = k;
-		if (kv_write(k, v, n)) FAIL("key %d: write failed", k);
-		seeds[k] = seed; pending_key = -1; updates++;
+		const int e = kv_write(k, v, n);
+		if (e == -ENOSPC) {
+			// Only allowed when the values (plus 32 bytes each) fill the capacity
+			size_t live = n + 32;
+			for (int i = 0; i < KEYS; i++) if (seeds[i] && i != k) live += fill_value(seeds[i], v) + 32;
+			if (live <= lib_capacity()) FAIL("key %d: no space with %zu bytes", k, live);
+			pending_key = -1;
+		} else {
+			if (e) FAIL("key %d: write failed (%d)", k, e);
+			seeds[k] = seed; pending_key = -1; updates++;
+		}
 	} else if (op < 7) {
 		pending_seed = 0; pending_key = k;
 		if (kv_delete(k)) FAIL("key %d: delete failed", k);

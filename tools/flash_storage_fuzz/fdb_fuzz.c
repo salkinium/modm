@@ -50,7 +50,8 @@ static int kv_write(int k, const uint8_t *v, size_t n)
 {
 	char name[8]; struct fdb_blob blob;
 	key_name(k, name);
-	return fdb_kv_set_blob(&kvdb, name, fdb_blob_make(&blob, v, n)) == FDB_NO_ERR ? 0 : -EIO;
+	const fdb_err_t e = fdb_kv_set_blob(&kvdb, name, fdb_blob_make(&blob, v, n));
+	return e == FDB_NO_ERR ? 0 : e == FDB_SAVED_FULL ? -ENOSPC : -EIO;
 }
 static int kv_delete(int k)
 {
@@ -59,6 +60,10 @@ static int kv_delete(int k)
 	fdb_err_t e = fdb_kv_del(&kvdb, name);
 	return (e == FDB_NO_ERR || e == FDB_KV_NAME_ERR) ? 0 : -EIO;
 }
+
+// FlashDB keeps one sector empty for its garbage collection, fragmentation
+// by large values: half a sector always fits
+static size_t lib_capacity(void) { return SEC / 2; }
 
 static int log_append(void)
 {

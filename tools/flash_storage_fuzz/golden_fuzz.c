@@ -65,6 +65,7 @@ static int kv_write(int k, const uint8_t *v, size_t n)
 }
 static int kv_delete(int k) { ram.length[k] = 0; return store(); }
 static int log_append(void) { return 0; }
+static size_t lib_capacity(void) { return (size_t)-1; }
 
 static int lib_mount(void)
 {

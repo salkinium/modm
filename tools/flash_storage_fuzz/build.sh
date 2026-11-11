@@ -20,3 +20,15 @@ done
 cc $CFLAGS -o "$OUT/golden" "$HERE/golden_fuzz.c"
 cc $CFLAGS -I"$ROOT/ext/zephyrproject-rtos/zms/shim" -I"$ZMS" -o "$OUT/zms$SUFFIX" "$HERE/zms_fuzz.c" \
 	"$ZMS/zms.c" "$ROOT/ext/zephyrproject-rtos/zms/zms_port.c"
+
+# Coverage guided with libFuzzer, ASan and UBSan (Apple clang has no libFuzzer runtime)
+LFCC=${LFCC:-$(ls /opt/homebrew/opt/llvm*/bin/clang 2>/dev/null | tail -1)}
+if [ -n "$LFCC" ]; then
+	LFFLAGS="-O1 -g -DLIBFUZZER -fsanitize=fuzzer,address,undefined -fno-sanitize-recover=undefined -I$OUT/cfg -I$HERE -I$ROOT/ext/armink"
+	$LFCC $LFFLAGS -DMAXV=1800 -I"$ROOT/ext/zephyrproject-rtos/zms/shim" -I"$ZMS" -o "$OUT/zms-lf$SUFFIX" \
+		"$HERE/zms_fuzz.c" "$ZMS/zms.c" "$ROOT/ext/zephyrproject-rtos/zms/zms_port.c"
+	# Values up to 1 kB find FDB_SAVED_FULL with only deleted values in two sectors
+	$LFCC $LFFLAGS -fsanitize-ignorelist=$HERE/ubsan-ignore.txt -DMAXV=256 -DFDB_WRITE_GRAN=64 -I"$FDB/inc" -o "$OUT/fdb8-lf$SUFFIX" "$HERE/fdb_fuzz.c" \
+		"$FDB/src/fdb.c" "$FDB/src/fdb_kvdb.c" "$FDB/src/fdb_tsdb.c" "$FDB/src/fdb_utils.c"
+	$LFCC $LFFLAGS -o "$OUT/golden-lf" "$HERE/golden_fuzz.c"
+fi

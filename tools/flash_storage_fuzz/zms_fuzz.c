@@ -29,13 +29,18 @@ static const struct device dev = {&api, NULL};
 
 static struct zms_fs fs;
 
-static ssize_t kv_read(int k, uint8_t *v)
+// IDs at the edges of the range, 0xffffffff is ZMS_HEAD_ID
+static uint32_t key_id(int k) { return k < 14 ? (uint32_t)k : k == 14 ? 0x7fffffff : 0xfffffffe; }
+static ssize_t kv_read(int k, uint8_t *v) { return zms_read(&fs, key_id(k), v, MAXV); }
+static int kv_write(int k, const uint8_t *v, size_t n)
 {
-	ssize_t n = zms_read(&fs, k, v, MAXV);
-	return n;
+	const ssize_t e = zms_write(&fs, key_id(k), v, n);
+	return e == -ENOSPC ? -ENOSPC : e < 0 ? -EIO : 0;
 }
-static int kv_write(int k, const uint8_t *v, size_t n) { return zms_write(&fs, k, v, n) < 0 ? -EIO : 0; }
-static int kv_delete(int k) { return zms_delete(&fs, k) ? -EIO : 0; }
+static int kv_delete(int k) { return zms_delete(&fs, key_id(k)) ? -EIO : 0; }
+// The garbage collection compacts the values, everything fitting into one
+// sector must fit (the model counts 32 bytes per value for ATE and alignment)
+static size_t lib_capacity(void) { return SEC - 5 * fs.ate_size - (fs.ate_size > 16 ? 32 * KEYS : 0); }
 static int log_append(void) { return 0; }
 
 static int lib_mount(void)
