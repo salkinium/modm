@@ -47,8 +47,23 @@ completely, units after it are not touched)
   programmed. Units of all ones data are assumed to behave the same (not
   measured, the hardware test used `0x5a`).
 
-**The realistic model for STM32 with ECC is `cut=stm32 erase=bits prog=stm32 when=time`**
-(`prog=content` for H5/H7, `skipff=1` if the driver skips units of all ones).
+**The realistic models are the measured presets `family=l4|u5|h5|h7|f4|l0`**
+(later options override them):
+
+| family | unit | program | erase | interrupted unit: erased/complete/ECCC/ECCD | interrupted erase | reprogram fails | ECCD reads |
+|---|---|---|---|---|---|---|---|
+| l4 (L4/L5/G0/G4) | 8 | 92 µs | 22.1 ms | 19/56/0/25 | not seen, atomic | not erased, ECC, all ones before | raw |
+| u5 (U5/U3) | 16 | 125 µs | 1.54 ms | 10/83/2/5 | bits drift to one, erased words from 12%, clean from 60% | like l4 | raw |
+| h5 | 16 | 36 µs | 1.55 ms | 26/60/12/2 | not seen, atomic | not erased, ECC | raw |
+| h7 | 32 | 86 µs | 0.93 s | 7/18/0/75 | zero in address order (0-15%), garbage (-36%), ECCD (-50%), clean | not erased, ECC | garbage |
+| f4 (F2/F4/F7) | 1 | 4 µs | 0.19 s | 50/50/0/0 | not seen, atomic | never (NOR) | - |
+| l0 (L0/L1) | 4 | 3.2 ms | 3.3 ms | 20/50/0/30 (unmeasured) | not seen, atomic | not erased, ECC | raw |
+
+All presets cut by time (`when=time`), skip units of all ones like the driver
+(`skipff=1`) and read ECCD units as zeros like the ports (`eccmap=1`). "Not seen"
+means a system reset never interrupted the erase, real power loss is unmeasured.
+The older `cut=stm32 erase=bits prog=stm32 when=time` is more pessimistic for
+erases.
 
 `erase`: what an interrupted erase leaves
 - `atomic`: the sector is unchanged, the erase did not start.
@@ -75,11 +90,9 @@ written unit again: a bug on ECC flash even without power loss) or `residue`
 
 ## Not modeled
 
-- ECC flags on reads: damaged units read as their wrong data, like the
-  (corrected) data on the hardware. `Flash::read()` must not fault on them, and
-  a storage library must not program them (G0 raises an NMI when programming
-  a word with a double ECC error, L4/L5/U3/U5 set PROGERR).
-- Interrupted erases are not measured on hardware yet, `erase=bits` is a guess.
+- ECC errors of neighbouring words: the driver must only report the ECC errors
+  of the words it read (prefetch reads the next word too).
+- Interrupted erases by power loss (only by system reset) and the L0/L1 program.
 - Bits that read correctly but are weakly programmed and flip later.
 - Power loss during the reboot itself (mount and recovery run uninterrupted).
 
