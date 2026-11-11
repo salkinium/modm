@@ -101,7 +101,7 @@ struct State
 	fdb_time_t log_time;    // last appended log
 	uint32_t cycles, steps, erases, kv_recovered, ts_recovered;
 };
-modm_section(".noinit") State state;
+alignas(32) modm_section(".noinit") State state;
 // Changes with every build, so that a new program starts from scratch
 constexpr uint32_t Magic = mix(__TIME__[0] | __TIME__[1] << 8 | __TIME__[3] << 16 | __TIME__[4] << 24) ^ __TIME__[7];
 
@@ -112,13 +112,31 @@ bool failed{false};
 
 // ----------------------------------------------------------------------------
 // The partitions use the last free pages behind the image
+/// The reset can hit any flash operation: the model must be in RAM by then,
+/// not only in the write-back data cache of a Cortex-M7
+void
+persist()
+{
+#if defined(__DCACHE_PRESENT) && __DCACHE_PRESENT
+	SCB_CleanDCache_by_Addr(reinterpret_cast<uint32_t *>(&state), sizeof(state));
+#endif
+}
+
 int (*erase_page)(const fal_partition*, uint32_t, size_t);
+int (*write_flash)(const fal_partition*, uint32_t, const uint8_t*, size_t);
 int
 count_erase(const fal_partition *part, uint32_t addr, size_t size)
 {
 	// FlashDB erases one sector per call, which is several pages on L0/L1
 	state.erases++;
+	persist();
 	return erase_page(part, addr, size);
+}
+int
+persist_write(const fal_partition *part, uint32_t addr, const uint8_t *data, size_t size)
+{
+	persist();
+	return write_flash(part, addr, data, size);
 }
 
 /// Two sectors of at least 2 kB below the page end, made of pages of the same size
@@ -374,6 +392,8 @@ main()
 	static modm::flashdb::FlashPartition kv_part("kv", kv_offset, 2 * kv_sector);
 	erase_page = kv_part.dev.erase;
 	kv_part.dev.erase = ts_part.dev.erase = count_erase;
+	write_flash = kv_part.dev.write;
+	kv_part.dev.write = ts_part.dev.write = persist_write;
 
 	if (fresh)
 	{
@@ -393,9 +413,10 @@ main()
 		MODM_LOG_INFO << "cycle " << state.cycles << ", " << state.steps << " steps" << modm::endl;
 	if (state.cycles < FLASHDB_POWER_LOSS_CYCLES and state.erases < FLASHDB_MAX_ERASES)
 	{
-		// The watchdog resets after 1-2000ms, the LSI clocks it with ~32kHz / 32
+		// The watchdog resets after 50-300ms, the LSI clocks it with ~32kHz / 32.
+		// It keeps running after the reset, the startup must be shorter.
 		Iwdg::enable();
-		Iwdg::initialize(Iwdg::Prescaler::Div32, 1 + random(2000));
+		Iwdg::initialize(Iwdg::Prescaler::Div32, 50 + random(250));
 		Iwdg::trigger();
 		while (not failed) step();
 		state.magic = ~Magic;
