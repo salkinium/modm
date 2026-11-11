@@ -51,6 +51,8 @@ static int lib_mount(void)
 	fs.sector_size = SEC;
 	fs.sector_count = 4;
 	int e = zms_mount(&fs);
+	if (trace) printf("    mounted %d: ate_wra 0x%llx data_wra 0x%llx cycle %u\n", e,
+					  (unsigned long long)fs.ate_wra, (unsigned long long)fs.data_wra, fs.sector_cycle);
 	if (e) FAIL("mount failed %d", e);
 	return e;
 }
