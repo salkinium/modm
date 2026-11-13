@@ -44,7 +44,8 @@ To log via RTT attach a debugger to the SWD port and select the RTT option:
 ## SPI Flash
 
 The footprint of a W25QxxJV SPI flash on the back is not populated. A soldered
-flash is connected to SPI1 with the pins in `Board::flash`.
+flash is connected to SPI1 with the pins in `Board::flash`, see the
+`examples/ext/spi_flash_storage` example with ZMS and FlashDB on it.
 """
 
 def prepare(module, options):
