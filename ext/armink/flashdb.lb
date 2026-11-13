@@ -74,7 +74,7 @@ def init(module):
 def prepare(module, options):
     module.add_submodule(KvdbModule())
     module.add_submodule(TsdbModule())
-    module.depends(":architecture:assert")
+    module.depends(":architecture:assert", ":architecture:block.device")
     return True
 
 def build(env):
@@ -95,8 +95,6 @@ def build(env):
         # FlashDB supports only these, the F0/F1/F3 with 16 bits use 32 bits
         "write_gran": next(g for g in [1, 8, 32, 64, 128, 256] if g >= write_bits),
         "flash": has_flash,
-        # The erased flash of the STM32L0/L1 reads as zero
-        "invert": has_flash and env[":target"].identifier.family in ["l0", "l1"],
         "log": env.has_module(":debug"),
     }
     env.template("fdb_cfg.h.in")

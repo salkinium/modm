@@ -18,6 +18,7 @@ def prepare(module, options):
     module.add_option(
         NumericOption(name="lookup_cache", minimum=0, maximum=1024, default=32,
                       description="Entries of the ID lookup cache in each `zms_fs`, 8 bytes each"))
+    module.depends(":architecture:block.device")
     return True
 
 def build(env):
@@ -29,8 +30,7 @@ def build(env):
     env.copy("zms/zms_priv.h", "zms_priv.h")
     env.copy("zms_port.c")
     env.copy("shim/zephyr", "zephyr")
-    env.substitutions = {"lookup_cache": env["lookup_cache"]}
+    env.substitutions = {"lookup_cache": env["lookup_cache"],
+                         "flash": env.has_module(":platform:flash")}
     env.template("zms_config.h.in")
-    if env.has_module(":platform:flash"):
-        env.template("zms.hpp.in")
-        env.template("flash.cpp.in")
+    env.template("zms.hpp.in")

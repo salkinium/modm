@@ -10,12 +10,7 @@
 // ----------------------------------------------------------------------------
 
 #include "flashdb.hpp"
-#include <modm/architecture/interface/assert.hpp>
-#include <algorithm>
 #include <cstring>
-%% if flash
-#include <modm/platform/flash/flash.hpp>
-%% endif
 %% if log
 #include <modm/debug/logger.hpp>
 #include <cstdarg>
@@ -86,89 +81,3 @@ modm_fdb_print(const char *format, ...)
 %% endif
 
 } // extern "C"
-
-%% if flash
-// ----------------------------------------------------------------------------
-using modm::platform::Flash;
-static_assert(FDB_WRITE_GRAN >= Flash::WriteSize * 8, "FDB_WRITE_GRAN is smaller than Flash::WriteSize!");
-
-static int
-flash_read(const fal_partition *part, uint32_t addr, uint8_t *buf, size_t size)
-{
-	const uintptr_t start = Flash::OriginAddr + part->offset + addr;
-	if (Flash::read(start, buf, size))
-	{
-		// A word with a double ECC error, e.g. after a power loss during
-		// programming, reads raw or garbage bytes, which could even look erased:
-		// read it as non-erased and invalid instead.
-		for (size_t pos{0}; pos < size;)
-		{
-			const uintptr_t word = (start + pos) & ~uintptr_t(Flash::WriteSize - 1);
-			const size_t end = std::min<size_t>(size, word + Flash::WriteSize - start);
-			uint8_t buffer[Flash::WriteSize];
-			if (Flash::read(word, buffer, Flash::WriteSize))
-				std::memset(buf + pos, uint8_t(~Flash::ErasedValue), end - pos);
-			pos = end;
-		}
-	}
-%% if invert
-	// FlashDB expects the erased flash to read as 0xff
-	for (size_t ii{0}; ii < size; ii++) buf[ii] = ~buf[ii];
-%% endif
-	return int(size);
-}
-
-static int
-flash_write(const fal_partition *part, uint32_t addr, const uint8_t *buf, size_t size)
-{
-	// The buffer program refuses misaligned writes and, on flash with ECC,
-	// targets that are not erased, e.g. a word damaged by a reset
-	const uintptr_t dst = Flash::OriginAddr + part->offset + addr;
-	if (not Flash::unlock()) return -1;
-%% if invert
-	// FlashDB expects the erased flash to read as 0xff. Inverted in chunks up
-	// to the next half-page, so that full half-pages use the faster burst.
-	uint32_t err{};
-	for (size_t ii{0}; ii < size and not err;)
-	{
-		uint32_t chunk[Flash::BurstSize / 4];
-		const size_t count = std::min(size - ii, sizeof(chunk) - (dst + ii) % sizeof(chunk));
-		std::memcpy(chunk, buf + ii, count);
-		for (auto &word : chunk) word = ~word;
-		err = Flash::program(dst + ii, chunk, count);
-		ii += count;
-	}
-%% else
-	const uint32_t err = Flash::program(dst, buf, size);
-%% endif
-	Flash::lock();
-	return err ? -1 : int(size);
-}
-
-static int
-flash_erase(const fal_partition *part, uint32_t addr, size_t size)
-{
-	const uint32_t offset = part->offset + addr;
-	if (not Flash::unlock()) return -1;
-	uint32_t err{};
-	for (uint16_t page = Flash::getPage(offset); page <= Flash::getPage(offset + size - 1) and not err; page++)
-		err = Flash::erase(page);
-	Flash::lock();
-	return err ? -1 : int(size);
-}
-
-modm::flashdb::FlashPartition::FlashPartition(const char *name, uint32_t offset, size_t size) :
-	fal_partition{name, name, offset, size,
-				  {Flash::getSize(Flash::getPage(offset)), flash_read, flash_write, flash_erase}, nullptr}
-{
-	const uint16_t first = Flash::getPage(offset);
-	const uint16_t last = Flash::getPage(offset + size - 1);
-	modm_assert(Flash::getOffset(first) == offset and
-				Flash::getOffset(last) + Flash::getSize(last) == offset + size,
-				"fdb.part", "FlashDB partition is not aligned to the flash pages!");
-	for (uint16_t page = first; page <= last; page++)
-		modm_assert(Flash::getSize(page) == dev.blk_size, "fdb.page",
-					"FlashDB partition has pages of different sizes!");
-	add(*this);
-}
-%% endif

@@ -21,19 +21,29 @@ boot_count++;
 zms_write(&fs, 1, &boot_count, sizeof(boot_count));
 ```
 
+ZMS works on any `modm::BlockDevice`, for example a range of the internal
+flash or an external flash, with offsets relative to the block device:
+
+```cpp
+modm::platform::BdFlash<Flash::Size - 16*1024> storage;
+// Four sectors of one erase block each
+modm::zms::setup<storage>(fs, 0, 4);
+```
+
 `zms_mount()` formats an erased area. The API is documented in
 `<zephyr/kvss/zms.h>`, see also the [Zephyr documentation][zms].
 
 This copy is changed to survive power losses during flash operations on STM32
 flash with ECC: an interrupted program or erase can leave words behind that
 read wrong data with an ECC error and cannot be programmed again. It was
-fuzzed with a power-loss model calibrated on STM32 hardware and requires the
-buffer `Flash::program()` of the `modm:platform:flash` module, which refuses
-non-erased targets and skips units of only erased bytes.
+fuzzed with a power-loss model calibrated on STM32 hardware. On the internal
+flash it relies on `BdFlash`, whose `program()` refuses non-erased targets and
+skips units of only erased bytes, and whose `readMarked()` reads words with a
+double ECC error as invalid.
 
-Sectors must consist of whole flash pages of the same size. Every value costs
-one ATE of 16 bytes (or `Flash::WriteSize`, if larger) plus the value rounded
-up to `Flash::WriteSize` bytes. A sector holds at most `sector_size - 5 ATEs`
+Sectors must consist of whole erase blocks of the same size. Every value costs
+one ATE of 16 bytes (or `BlockSizeWrite`, if larger) plus the value rounded
+up to `BlockSizeWrite` bytes. A sector holds at most `sector_size - 5 ATEs`
 bytes of data.
 
 The ZMS functions are not thread-safe. If several fibers or interrupts access

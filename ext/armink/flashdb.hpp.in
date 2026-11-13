@@ -11,6 +11,13 @@
 
 #pragma once
 #include <flashdb.h>
+#include <modm/architecture/interface/assert.hpp>
+#include <modm/architecture/interface/block_device.hpp>
+%% if flash
+#include <modm/platform/flash/block_device.hpp>
+%% endif
+#include <algorithm>
+#include <type_traits>
 
 namespace modm::flashdb
 {
@@ -19,34 +26,56 @@ namespace modm::flashdb
 void
 add(fal_partition &partition);
 
-%% if flash
 /**
- * Partition in the internal flash, the offset is relative to `Flash::OriginAddr`
- * and must be aligned to the pages or sectors, which must all have the same size.
- * Reserve the flash with the `modm:platform:cortex-m:linkerscript.flash_reserved`
- * option, the partition then starts at `__flash_reserved_start`.
- */
-class FlashPartition : public fal_partition
-{
-public:
-	FlashPartition(const char *name, uint32_t offset, size_t size);
-};
-
-%% endif
-/**
- * Partition on a `modm::BlockDevice`, for example the external flash of
- * `modm::BdSpiFlash`. FlashDB runs in the fiber that calls it.
+ * Partition on a `modm::BlockDevice`, for example a range of the internal flash
+ * (`modm::platform::BdFlash`) or the external flash of `modm::BdSpiFlash`. The
+ * offset is relative to the block device and the partition must consist of
+ * whole erase blocks of the same size. FlashDB runs in the fiber that calls it.
+ *
+ * Write blocks that cannot be read, e.g. with an ECC error after a power loss,
+ * read as not erased, and a device that erases to another value than 0xff is
+ * inverted, since FlashDB expects erased flash to read as 0xff.
  */
 template< auto &device >
 class BlockDevicePartition : public fal_partition
 {
+	using Bd = std::remove_cvref_t<decltype(device)>;
+	static_assert(not Bd::ProgramOnce or FDB_WRITE_GRAN >= 8 * Bd::BlockSizeWrite,
+				  "FDB_WRITE_GRAN is smaller than the write block of the device!");
+	// Inverts the erased value to 0xff
+	static constexpr uint8_t Invert = Bd::ErasedValue ^ 0xff;
+
 	static int
 	read(const fal_partition *part, uint32_t addr, uint8_t *buf, size_t size)
-	{ return device.read(buf, part->offset + addr, size) ? int(size) : -1; }
+	{
+		if (size == 0) return 0;
+		if (device.readMarked(buf, part->offset + addr, size) < 0) return -1;
+		if constexpr (Invert) for (size_t ii{0}; ii < size; ii++) buf[ii] ^= Invert;
+		return int(size);
+	}
 
 	static int
 	write(const fal_partition *part, uint32_t addr, const uint8_t *buf, size_t size)
-	{ return device.program(buf, part->offset + addr, size) ? int(size) : -1; }
+	{
+		if (size == 0) return 0;
+		if constexpr (Invert)
+		{
+			// In aligned chunks, so that whole half-pages of the STM32L0/L1 still
+			// use the faster burst programming
+			constexpr size_t Chunk{128};
+			for (size_t ii{0}; ii < size;)
+			{
+				uint8_t chunk[Chunk];
+				const uint32_t dst = part->offset + addr + ii;
+				const size_t count = std::min<size_t>(size - ii, Chunk - dst % Chunk);
+				for (size_t jj{0}; jj < count; jj++) chunk[jj] = buf[ii + jj] ^ Invert;
+				if (not device.program(chunk, dst, count)) return -1;
+				ii += count;
+			}
+			return int(size);
+		}
+		return device.program(buf, part->offset + addr, size) ? int(size) : -1;
+	}
 
 	static int
 	erase(const fal_partition *part, uint32_t addr, size_t size)
@@ -55,8 +84,35 @@ class BlockDevicePartition : public fal_partition
 public:
 	BlockDevicePartition(const char *name, uint32_t offset, size_t size) :
 		fal_partition{name, name, offset, size,
-					  {device.BlockSizeErase, read, write, erase}, nullptr}
-	{ add(*this); }
+					  {device.getEraseBlock(offset).size, read, write, erase}, nullptr}
+	{
+		modm_assert(size and offset + size <= Bd::DeviceSize and
+					device.getEraseBlock(offset).address == offset and
+					(offset + size == Bd::DeviceSize or
+					 device.getEraseBlock(offset + size).address == offset + size),
+					"fdb.part", "FlashDB partition is not aligned to the erase blocks!");
+		for (uint32_t block = offset; block < offset + size; block += dev.blk_size)
+			modm_assert(device.getEraseBlock(block).size == dev.blk_size, "fdb.block",
+						"FlashDB partition has erase blocks of different sizes!");
+		add(*this);
+	}
 };
+%% if flash
+
+/// The whole internal flash, offsets are relative to `Flash::OriginAddr`
+inline constinit modm::platform::BdFlash<> flash{};
+
+/**
+ * Partition in the internal flash, the offset is relative to `Flash::OriginAddr`
+ * and must be aligned to the pages or sectors, which must all have the same size.
+ * Reserve the flash with the `modm:platform:cortex-m:linkerscript.flash_reserved`
+ * option, the partition then starts at `__flash_reserved_start`.
+ */
+class FlashPartition : public BlockDevicePartition<flash>
+{
+public:
+	using BlockDevicePartition<flash>::BlockDevicePartition;
+};
+%% endif
 
 } // namespace modm::flashdb

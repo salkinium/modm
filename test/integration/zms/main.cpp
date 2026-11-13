@@ -124,6 +124,7 @@ persist()
 
 // ----------------------------------------------------------------------------
 // Counts the erased sectors through a copy of the flash device
+const flash_driver_api &flash_api = *modm::zms::device<modm::zms::flash>.api;
 flash_driver_api api;
 const device dev{&api, nullptr};
 
@@ -132,14 +133,14 @@ countErase(const device *d, off_t offset, size_t size)
 {
 	state.erases++;
 	persist();
-	return modm::zms::flash()->api->erase(d, offset, size);
+	return flash_api.erase(d, offset, size);
 }
 
 int
 persistWrite(const device *d, off_t offset, const void *data, size_t size)
 {
 	persist();
-	return modm::zms::flash()->api->write(d, offset, data, size);
+	return flash_api.write(d, offset, data, size);
 }
 
 /// Four sectors of at least 2 kB at the end of the flash, behind the image
@@ -153,7 +154,7 @@ setup(zms_fs &fs)
 	const uint16_t pages = 4 * ((std::max<size_t>(2048, page_size) + page_size - 1) / page_size);
 	if (end <= image + 1 + pages) return false;
 	if (not modm::zms::setup(fs, Flash::getOffset(end - pages), 4, 2048)) return false;
-	api = *modm::zms::flash()->api;
+	api = flash_api;
 	api.erase = countErase;
 	api.write = persistWrite;
 	fs.flash_device = &dev;
