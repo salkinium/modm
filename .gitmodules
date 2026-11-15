@@ -69,4 +69,4 @@
 	url = https://github.com/modm-ext/o1heap-partial.git
 [submodule "ext/zephyrproject-rtos/heap"]
 	path = ext/zephyrproject-rtos/heap
-	url = https://github.com/modm-ext/zephyr-heap-partial.git
+	url = https://github.com/modm-ext/zephyr-partial.git
