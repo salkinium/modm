@@ -12,3 +12,6 @@
 #pragma once
 
 #include "cyphal/node.hpp"
+#if __has_include("cyphal/dronecan.hpp")
+#include "cyphal/dronecan.hpp"
+#endif

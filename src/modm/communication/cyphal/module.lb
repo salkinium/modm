@@ -26,4 +26,6 @@ def prepare(module, options):
 def build(env):
     env.outbasepath = "modm/src/modm/communication/cyphal"
     env.copy("node.hpp")
+    if env.has_module(":dronecan"):
+        env.copy("dronecan.hpp")
     env.copy("../cyphal.hpp")
