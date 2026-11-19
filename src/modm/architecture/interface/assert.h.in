@@ -30,7 +30,12 @@
 #endif
 
 // C-type information struct
+%% if core.startswith("cortex-m") or core.startswith("avr")
 typedef struct modm_packed
+%% else
+// Darwin's linker rejects packed constants containing unaligned pointers
+typedef struct
+%% endif
 {
 	const char *name;
 #if MODM_ASSERTION_INFO_HAS_DESCRIPTION
