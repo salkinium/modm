@@ -29,6 +29,9 @@
 #include <string_view>
 
 #include "iodevice.hpp"
+%% if with_fiber
+#include <modm/architecture/interface/fiber.hpp>
+%% endif
 
 %% if options.with_printf
 /// @cond
@@ -102,14 +105,14 @@ public:
 	flush()
 	{
 		device->flush();
-		mode = Mode::Ascii;
+		reset_mode();
 		return *this;
 	}
 
 	inline IOStream&
 	endl()
 	{
-		mode = Mode::Ascii;
+		reset_mode();
 		device->write('\n');
 		return *this;
 	}
@@ -117,12 +120,12 @@ public:
 	/// set the output mode to binary style for integer types
 	inline IOStream&
 	bin()
-	{ mode = Mode::Binary; return *this; }
+	{ mode = Mode::Binary; take_format(); return *this; }
 
 	/// set the output mode to hexadecimal style for integer types
 	inline IOStream&
 	hex()
-	{ mode = Mode::Hexadecimal; return *this; }
+	{ mode = Mode::Hexadecimal; take_format(); return *this; }
 
 	/// set the output mode to ASCII style for integer types
 	inline IOStream&
@@ -137,6 +140,7 @@ public:
 	inline IOStream&
 	operator << (const char& v)
 	{
+		const Mode mode = format_mode();
 		if (mode == Mode::Ascii)
 			device->write(v);
 		else if (mode == Mode::Binary)
@@ -148,6 +152,7 @@ public:
 	inline IOStream&
 	operator << (const uint8_t& v)
 	{
+		const Mode mode = format_mode();
 		if (mode == Mode::Ascii)
 			writeInteger(static_cast<uint16_t>(v));
 		else if (mode == Mode::Binary)
@@ -257,19 +262,21 @@ public:
 %% endif
 
 %% if options.with_printf
-	inline int width() const { return printf_width; }
+	inline int width() const { return format_width(); }
 	inline int width(int w) {
-		const size_t old = printf_width;
+		const size_t old = format_width();
 		if (w < 0) w = 0;
 		printf_width = w;
+		take_format();
 		return old;
 	}
 %% if options.with_float
-	inline int precision() const { return printf_precision; }
+	inline int precision() const { return format_precision(); }
 	inline int precision(int p) {
-		const size_t old = printf_precision;
+		const size_t old = format_precision();
 		if (p < 0) p = 6;
 		printf_precision = p;
+		take_format();
 		return old;
 	}
 %% endif
@@ -286,6 +293,7 @@ protected:
 	writeIntegerMode(const T v)
 	{
 		constexpr size_t t_bits = sizeof(T)*8;
+		const Mode mode = format_mode();
 		if (mode == Mode::Ascii) {
 			writeInteger(v);
 		} else if (mode == Mode::Binary) {
@@ -330,6 +338,63 @@ private:
 
 	IODevice* const	device;
 	Mode mode = Mode::Ascii;
+%% if with_fiber
+	// The formatting state belongs to the fiber that set it, so that the other
+	// fibers sharing this stream use the default format instead.
+	fiber::id format_owner{fiber::invalid_id};
+
+	inline bool
+	own_format() const
+	{ return format_owner == this_fiber::get_id(); }
+%% endif
+
+	inline void
+	take_format()
+	{
+%% if with_fiber
+		format_owner = this_fiber::get_id();
+%% endif
+	}
+
+	inline Mode
+	format_mode() const
+	{
+%% if with_fiber
+		if (mode != Mode::Ascii and not own_format()) return Mode::Ascii;
+%% endif
+		return mode;
+	}
+
+	inline void
+	reset_mode()
+	{
+%% if with_fiber
+		if (own_format())
+%% endif
+		mode = Mode::Ascii;
+	}
+%% if options.with_printf
+
+	inline size_t
+	format_width() const
+	{
+%% if with_fiber
+		if (printf_width and not own_format()) return 0;
+%% endif
+		return printf_width;
+	}
+%% if options.with_float
+
+	inline size_t
+	format_precision() const
+	{
+%% if with_fiber
+		if (printf_precision != 6 and not own_format()) return 6;
+%% endif
+		return printf_precision;
+	}
+%% endif
+%% endif
 %% if options.with_printf
 	static void out_char(char c, void* arg)
 	{ if (c) reinterpret_cast<modm::IOStream*>(arg)->write(c); }
@@ -443,13 +508,14 @@ public:
 	inline void
 	copyfmt(const IOStream& other)
 	{
-		this->mode = other.mode;
+		this->mode = other.format_mode();
 %% if options.with_printf
 %% if options.with_float
-		this->printf_precision = other.printf_precision;
+		this->printf_precision = other.format_precision();
 %% endif
-		this->printf_width = other.printf_width;
+		this->printf_width = other.format_width();
 %% endif
+		this->take_format();
 	}
 
 private:

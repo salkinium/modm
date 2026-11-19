@@ -42,7 +42,7 @@ IOStream::get(char* s, size_t n)
 IOStream&
 IOStream::operator << (const bool& v)
 {
-	switch (mode)
+	switch (format_mode())
 	{
 		case Mode::Ascii:
 			*this << (v ? IFSS("true") : IFSS("false"));

@@ -60,5 +60,8 @@ public:
 	testIODeviceLine();
 
 	void
+	testIOStreamFormat();
+
+	void
 	testStackUsage();
 };

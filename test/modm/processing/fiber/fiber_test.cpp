@@ -476,6 +476,32 @@ FiberTest::testIODeviceLine()
 }
 
 void
+FiberTest::testIOStreamFormat()
+{
+	modm::IODeviceWrapper<BufferDevice, modm::IOBuffer::BlockIfFull> device;
+	modm::IOStream stream(device);
+	BufferDevice::space = sizeof(BufferDevice::buffer);
+	device.write('\n'); // ends the line of the previous test
+	BufferDevice::size = 0;
+	modm::fiber::Task fiber1(stack1, [&]
+	{
+		stream << modm::hex << uint8_t(0xAB);
+		modm::this_fiber::yield();
+		// keeps its own mode while other fibers use the stream
+		stream << uint8_t(0xCD) << modm::endl;
+	});
+	modm::fiber::Task fiber2(stack2, [&]
+	{
+		// does not use the mode of the other fiber
+		stream << uint8_t(12) << modm::endl;
+	});
+	modm::fiber::Scheduler::run();
+	stream << uint8_t(5);
+	TEST_ASSERT_EQUALS(BufferDevice::size, 10u);
+	TEST_ASSERT_EQUALS_ARRAY(BufferDevice::buffer, "AB\n12\nCD\n5", 10);
+}
+
+void
 FiberTest::testStackUsage()
 {
 	constexpr size_t words = 128;
