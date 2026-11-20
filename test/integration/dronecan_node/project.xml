@@ -1,0 +1,16 @@
+<library>
+  <extends>modm:nucleo-g474re</extends>
+  <!-- CI: limit 30 -->
+  <modules>
+    <module>modm:platform:can</module>
+    <module>modm:platform:can:*</module>
+    <module>modm:platform:flash</module>
+    <module>modm:communication:cyphal:dronecan</module>
+    <module>modm:zephyr-zms</module>
+    <module>modm:processing:timer</module>
+    <module>modm:build:scons</module>
+  </modules>
+  <options>
+    <option name="modm:dronecan:types">uavcan.protocol.NodeStatus</option>
+  </options>
+</library>
