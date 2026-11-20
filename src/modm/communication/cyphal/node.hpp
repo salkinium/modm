@@ -61,6 +61,10 @@ struct NodeConfig
 	/// Drop the received echoes of the frames sent by this node, so that the
 	/// node can be used with a CAN controller in loopback mode.
 	bool loopback = false;
+	/// Keep the node-ID if another node uses it too, as DroneCAN requires.
+	/// The frames of the other node are dropped and counted in collisions().
+	/// Otherwise libcanard moves to a free node-ID, as Cyphal does.
+	bool keep_node_id = false;
 };
 
 /**
@@ -93,6 +97,8 @@ public:
 	Node& operator=(const Node&) = delete;
 
 	/// @param node_id 0-127, or CANARD_NODE_ID_ANONYMOUS for automatic allocation.
+	///        With `keep_node_id`, anonymous is node-ID 0, which DroneCAN
+	///        reserves for nodes without node-ID.
 	/// @param seed must differ between nodes, e.g. a hash of the device UID.
 	bool
 	initialize(uint8_t node_id, uint64_t seed, Config config = {})
@@ -109,6 +115,8 @@ public:
 		canard.user_context = this;
 		canard.tx.fd = config.fd;
 		loopback = config.loopback;
+		keep_node_id = config.keep_node_id;
+		if (keep_node_id and node_id > CANARD_NODE_ID_MAX) node_id = 0;
 		if (node_id <= CANARD_NODE_ID_MAX) return canard_set_node_id(&canard, node_id);
 		return true;
 	}
@@ -133,6 +141,13 @@ public:
 	{
 		if (not message.isExtended() or message.isRemoteTransmitRequest()) return;
 		if (loopback and dropEcho(message.getIdentifier())) return;
+		// the source node-ID is in the lowest 7 bits in Cyphal and DroneCAN
+		if (keep_node_id and canard.node_id != 0 and
+			(message.getIdentifier() & CANARD_NODE_ID_MAX) == canard.node_id)
+		{
+			collision_count++;
+			return;
+		}
 		canard_ingest_frame(&canard, now(), 0, message.getIdentifier(),
 							{message.getLength(), message.data});
 	}
@@ -171,6 +186,13 @@ public:
 		// single frame: start and end of transfer, toggle 0
 		message.data[payload.size()] = 0xC0 | (transfer_id & CANARD_TRANSFER_ID_MAX);
 		return send(message);
+	}
+
+	/// Received frames of other nodes with the node-ID of this node, with `keep_node_id`
+	size_t
+	collisions() const
+	{
+		return collision_count;
 	}
 
 	/// Peak usage and out-of-memory events of the arena
@@ -287,6 +309,8 @@ private:
 
 	O1HeapInstance* heap{};
 	bool loopback{};
+	bool keep_node_id{};
+	size_t collision_count{};
 	// identifiers of the sent frames whose echo has not been received yet
 	uint32_t echoes[echoCapacity()];
 	size_t echo_start{};
