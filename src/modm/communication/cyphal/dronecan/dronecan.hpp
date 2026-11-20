@@ -11,7 +11,7 @@
 
 #pragma once
 
-#include "node.hpp"
+#include "../node.hpp"
 #include <dronecan/canard.h>
 #include <chrono>
 

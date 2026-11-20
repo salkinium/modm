@@ -77,38 +77,7 @@ the driver once and pass each frame to all nodes with `ingest()`.
 
 ## DroneCAN
 
-libcanard sends and receives DroneCAN (UAVCAN v0) transfers with the
-`canard_v0_*()` functions, always as Classic CAN frames. The `modm:dronecan`
-module generates the serialization code of the DroneCAN data types, and
-`<modm/communication/cyphal.hpp>` then also provides typed helpers for it,
-which take the data type ID, signature and size from the `modm::dronecan::Type<T>`
-specialization in every generated header:
-
-```cpp
-#include <uavcan.protocol.NodeStatus.h>
-#include <uavcan.protocol.GetNodeInfo.h>
-namespace dronecan = modm::dronecan;
-
-// publishing increments the transfer-ID
-uavcan_protocol_NodeStatus status{.uptime_sec = uptime};
-dronecan::publish(&node.canard, status, transfer_id);
-// services
-dronecan::request(&node.canard, server_id, uavcan_protocol_GetNodeInfoRequest{}, transfer_id);
-dronecan::respond(&node.canard, client_id, request_transfer_id, info);
-
-// subscribing to messages, requests (as server) and responses (as client)
-dronecan::subscribe<uavcan_protocol_NodeStatus>(&node.canard, &subscription, &vtable);
-// in the subscription callback
-uavcan_protocol_NodeStatus status;
-if (dronecan::decode(payload, status)) { /* valid */ }
-modm::cyphal::release(subscription, payload);
-```
-
-The `canard_v0_*()` functions can also be used directly with the generated C
-functions and `modm::dronecan::crcSeed()` and `modm::dronecan::transfer()`.
-
-libcanard cannot send anonymous frames, since Cyphal assigns node-IDs without
-them. A DroneCAN node without node-ID sends the anonymous requests of the
-dynamic node-ID allocation with `dronecan::publishAnonymous(node, allocation,
-transfer_id)` instead, and sets the allocated node-ID with
-`canard_set_node_id()`. The DroneCAN example implements a client and server.
+libcanard also sends and receives DroneCAN (UAVCAN v0) transfers with the
+`canard_v0_*()` functions, always as Classic CAN frames. The
+`modm:communication:cyphal:dronecan` module adds typed helpers for the
+generated DroneCAN data types and a node with the standard services.

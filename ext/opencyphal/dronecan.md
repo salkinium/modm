@@ -21,11 +21,12 @@ ArduPilot. For `uavcan.protocol.NodeStatus`:
 - In C++, a `modm::dronecan::Type<uavcan_protocol_NodeStatus>` specialization
   with `id`, `signature`, `max_size`, `encode()` and `decode()`, and the
   `Request` or `Response` type of a service, for the typed helpers of the
-  `modm:communication:cyphal` module.
+  `modm:communication:cyphal:dronecan` module.
 
 The code packs the bits with the serialization functions of the DroneCAN fork
 of libcanard, whose header is renamed to `<dronecan/canard.h>`. The transport
-is implemented by libcanard v5, see the `modm:communication:cyphal` module.
+is implemented by libcanard v5, see the `modm:communication:cyphal:dronecan`
+module for the node and its standard services.
 
 The generator is the `modm_tools.dronecan_dsdl` command line tool, which
 parses the DSDL with pydronecan and renders the code with jinja2:

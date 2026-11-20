@@ -11,8 +11,7 @@
   <modules>
     <module>modm:platform:can</module>
     <module>modm:platform:can:*</module>
-    <module>modm:communication:cyphal</module>
-    <module>modm:dronecan</module>
+    <module>modm:communication:cyphal:dronecan</module>
     <module>modm:processing:timer</module>
     <module>modm:build:scons</module>
   </modules>
