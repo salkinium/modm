@@ -349,9 +349,9 @@ register, therefore the context switch is a little faster.
 
 ## Thread-Local Storage
 
-With the `modm:processing:fiber:thread_local` option on Cortex-M and AVR, each
-fiber has its own copy of all `thread_local` variables, while code outside of
-fibers uses its own copy:
+With the `modm:processing:fiber:thread_local` option, each fiber has its own
+copy of all `thread_local` variables, while code outside of fibers uses its own
+copy:
 
 ```cpp
 thread_local uint32_t counter;	// one per fiber
@@ -420,6 +420,16 @@ uses a copy at the top of the main stack. Each access costs a function call of
 !!! warning "Variables are limited to 255 bytes on AVR"
     GCC stores the size of each variable in the 8-bit word mode of AVR, so
     larger `thread_local` variables are silently truncated by the compiler.
+
+### Hosted
+
+With emulated TLS, the compiler calls `__emutls_get_address()` for every access,
+which allocates the copies of each fiber on the heap on first access and frees
+them when the fiber ends or restarts. The destructors of the copies of a fiber
+are also not called, however, the system still destroys the objects of other
+threads when they exit. GCC only uses emulated TLS on Darwin, while Clang is
+forced to use it via `-femulated-tls`. With GCC on Linux and Windows, all fibers
+share the `thread_local` variables of their thread.
 
 
 ## Scheduling

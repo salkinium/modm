@@ -22,10 +22,9 @@ def prepare(module, options):
 
     core = options[":target"].get_driver("core")["type"]
     if core.startswith("cortex-m"): module.depends(":cmsis:device")
-    if core.startswith("cortex-m") or core.startswith("avr"):
-        module.add_option(
-            BooleanOption(name="thread_local", default=False,
-                          description=descr_thread_local))
+    module.add_option(
+        BooleanOption(name="thread_local", default=False,
+                      description=descr_thread_local))
     return (core.startswith("cortex-m") or core.startswith("avr") or
             "x86_64" in core or "arm64" in core)
 
@@ -48,10 +47,21 @@ def build(env):
         "target": env[":target"].identifier,
         "multicore": env.has_module(":platform:multicore"),
         "with_tls": env.get("thread_local", False),
-        # AVR emulates TLS by calling __emutls_get_address()
-        "with_emutls": env.get("thread_local", False) and core.startswith("avr"),
+        "with_emutls": False,
         "num_cores": 1,
     }
+    if env.substitutions["with_tls"] and ("x86_64" in core or "arm64" in core):
+        # Fibers can only have their own TLS with emulated TLS on hosted, which
+        # GCC only uses on Darwin, while Clang can be forced to use it.
+        compiler = env.get(":build:compiler", "gcc")
+        if compiler == "clang":
+            env.collect(":build:ccflags", "-femulated-tls")
+        elif env[":target"].identifier.family != "darwin":
+            env.substitutions["with_tls"] = False
+        if env.substitutions["with_tls"]:
+            env.substitutions["with_emutls"] = True
+            env.copy("tls_hosted.cpp")
+    env.substitutions["with_emutls"] |= env.substitutions["with_tls"] and core.startswith("avr")
     if env.has_module(":platform:multicore"):
         cores = int(env[":target"].identifier.cores)
         env.substitutions["num_cores"] = cores
@@ -97,4 +107,8 @@ trivially destructible types. See the module documentation for all limitations.
 
 On AVR, GCC limits each variable to 255 bytes and the linker must sort all
 input sections by name.
+
+On hosted targets, fibers use emulated TLS, which GCC only supports on Darwin,
+while Clang is forced to use it with `-femulated-tls`. With GCC on Linux and
+Windows, all fibers share the `thread_local` variables of their thread.
 """

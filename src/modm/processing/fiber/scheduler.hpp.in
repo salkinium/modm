@@ -148,6 +148,10 @@ protected:
 	void inline
 	unschedule()
 	{
+%% if with_emutls and not is_avr
+		// Free the thread-local storage allocated by this fiber
+		modm_context_tls_reset(current->ctx.top);
+%% endif
 		Task* next = current->next;
 		removeCurrent();
 		if (empty())
