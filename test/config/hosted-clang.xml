@@ -4,6 +4,7 @@
     <option name="modm:build:build.path">../../build/generated-unittest/hosted-clang/</option>
     <option name="modm:build:compiler">clang</option>
     <option name="modm:build:unittest.source">../../build/generated-unittest/hosted-clang/modm-test</option>
+    <option name="modm:processing:fiber:thread_local">yes</option>
   </options>
   <modules>
     <module>modm:platform:core</module>
