@@ -52,6 +52,393 @@ pay attention to. Medium impact changes are also worth looking at.
 
 <!--releases-->
 
+## 2027-01-01: 2026q4 release
+
+This release covers everything from 2026-10-01 and has been tested with avr-gcc
+v15.3 and Arm GCC v15.3 from our Docker images.
+
+Breaking changes:
+
+High impact, please check these when upgrading:
+
+- STM32F7, G4, H7, L1, L4 and L5: The old RCC API is removed. Custom
+  `SystemClock` configurations must be ported, for example `Rcc::PllFactors` to
+  `Rcc::PllConfig`, `Rcc::enableExternalClock()` to `Rcc::enableHseClock()`, and
+  `Rcc::Apb1Prescaler` to `Rcc::ApbPrescaler`. See the board support packages
+  for examples.
+- STM32 IWDG and nRF WDT: `initialize()` now starts the watchdog, which cannot be
+  stopped again. `enable()` does nothing and is deprecated. Move `initialize()`
+  to where `enable()` was called.
+
+Medium impact:
+
+- STM32 I2C: The transaction queue and the `buffer.transaction` lbuild option are
+  removed. `I2cMaster::start()` returns false while the bus is in use and the
+  caller must retry. `modm::I2cDevice` now times out after 100 ms by default,
+  which can be changed with `setTimeout()`.
+- The TLSF and block allocators are removed together with the `modm:tlsf` and
+  `modm:driver:block.allocator` modules. The `tlsf` option now selects the Zephyr
+  heap and `block` selects newlib, both with a warning. Targets with several RAM
+  regions now default to the Zephyr heap, and targets with up to 4 kB RAM now
+  default to newlib.
+- `modm::atomic::Flag` and `modm::atomic::Container` are removed, use
+  `std::atomic` instead. `modm::atomic::Queue` moved to
+  `<modm/architecture/interface/atomic_queue.hpp>`.
+- The fiber synchronization primitives moved from
+  `<modm/processing/fiber/*.hpp>` to `<modm/architecture/interface/fiber/*.hpp>`.
+  Including `<modm/processing/fiber.hpp>` continues to work.
+- lbuild v1.24.2 or newer is required.
+- STM32 TinyUSB: The USB serial number is now the 12 digit serial number of the
+  system bootloader instead of 32 digits, so that the device keeps its serial
+  number in DFU mode. Update udev rules and scripts using the old number.
+- Updated LVGL to v9.6, TinyUSB to v0.21, FreeRTOS to 202411, nrfx to v4.6 and
+  pico-sdk to v2.3.1. Code using these libraries directly may need to be adapted.
+
+Low impact:
+
+- XPCC is deprecated and moved to [modm-io/xpcc](https://github.com/modm-io/xpcc). Delete the `generated/` folder
+  of existing XPCC projects, since the generator does not rebuild the packets
+  when only its template changes.
+- Many outdated APIs are deprecated for removal in 2027q4, including the modm
+  containers replaced by the standard library, `modm::BoundedQueue`,
+  `modm::BoundedStack`, `modm::min`, `modm::max`, `modm::UnixTime`,
+  `modm::Date` and `fiber::Start`.
+- STM32: Passing an integer offset to `Flash::getPage()` and `Flash::getSector()`
+  still works, but is deprecated for removal in 2027q4. Pass a pointer instead:
+  `Flash::getPage(Flash::Origin + offset)`. Both functions now return `uint16_t`.
+- All external modules moved below `modm:ext`, for example `modm:freertos` to
+  `modm:ext:freertos`, and `modm:zephyr-heap` is now `modm:ext:zheap`. The old
+  names are deprecated aliases until 2027q4.
+- MC33XS2410: `getOutput()` now reports the commanded output state.
+- Cortex-M: `-fshort-wchar` is removed, so `wchar_t` is now 32-bit as in the
+  precompiled newlib and libstdc++. Use `u"..."` instead of `L"..."` for UTF-16
+  strings, for example in `tud_descriptor_string_cb()`.
+- `modm::BoundedDeque` now has the interface of `std::deque`.
+- Corrected clock trees, RCC encodings and board clock constants can change the
+  frequencies of affected targets.
+- The user button polarity of NUCLEO-G474RE and NUCLEO-G431RB is corrected.
+- bxCAN filters now match correctly and may reject frames accepted before.
+- `counting_semaphore::release()` saturates at its maximum.
+- Examples are sorted by use-case instead of board, and integration tests moved
+  to `test/integration`.
+
+Features:
+
+- Link-Time Optimization with `modm:build:lto`, saving 3-20% Flash in our examples.
+- Modernized with the C++23 standard library, with constant initialization of
+  static objects reducing static RAM by up to 48%.
+- Compilation with Clang on hosted Linux for tooling support.
+- Multiple build configurations per example.
+- Fibers: arguments and empty construction like `std::thread`, thread-local
+  storage on Cortex-M and AVR, hosted fibers with threads, and synchronization
+  primitives shared across schedulers.
+- STM32C5, STM32G5, STM32H7P and STM32H7R/S support.
+- STM32 flash driver for all families, also usable as block device.
+- STM32 GPDMA, HPDMA and LPDMA driver.
+- STM32 system bootloader module.
+- STM32H7 dual-core devices with shared memory between cores.
+- `serial` build option to select the DFU device.
+- Extended SPI driver on STM32U3 and U5.
+- MC33XS2410 batched `transfer()` and 10 MHz SPI.
+- DMA logic analyzer for one to four GPIO ports.
+- Power-loss safe Zephyr Memory Storage (ZMS) on block devices.
+- Zephyr heap and o1heap allocators.
+- Priority sorted CAN TX queue and bit rate switching.
+- RP2040 TIMER clock module and `program-picoboot` tool.
+- Port arguments for OpenOCD and J-Link GDB and RTT servers.
+- Patches are applied to external code during generation.
+
+Integrated Projects:
+
+- CMSIS-Core updated to v6.3.0.
+- CMSIS-DSP updated to v1.18.0.
+- ETL updated to v20.49.0.
+- FreeRTOS updated to 202411.
+- LVGL updated to v9.6.0.
+- nrfx updated to v4.6.0.
+- o1heap added.
+- pico-sdk updated to v2.3.1.
+- SEGGER RTT updated to v8.58.
+- TinyUSB updated to v0.21.0.
+- Zephyr heap and ZMS added.
+
+Fixes:
+
+- STM32 I2C drivers rewritten from peripheral models, with bus recovery.
+- STM32 bxCAN and FDCAN transmit order, races, filters and bus-off recovery.
+- STM32 RCC encodings and board clock configurations.
+- STM32 EXTI port selection and lines 32 and above.
+- STM32 extended SPI last received byte, idle SCK and long DMA transfers.
+- MC33XS2410 lost read-to-clear events and `getOutput()` reporting.
+- SysTick clocks jumping back while the interrupt is pending.
+- Fiber synchronization primitives with interrupts and multicore.
+- Fiber IODevice lock, stack overflow handling and ARMv8-M overflow reports.
+- RP2040 atomic lock with interrupts and on both cores.
+- `modm::math::Matrix` out-of-bounds read and Cortex-M `Undefined_Handler`
+  out-of-bounds write.
+- `modm::range` with steps overflowing the type.
+- LTO with libstdc++ throw paths and newlib's wide and integer printf.
+- Build system on Windows.
+
+New development boards:
+
+- Hosted targets as [`modm:board:hosted`][].
+- NUCLEO-C5A3ZG as [`modm:board:nucleo-c5a3zg`][].
+- NUCLEO-G564RE as [`modm:board:nucleo-g564re`][].
+- NUCLEO-H7A3ZI-Q as [`modm:board:nucleo-h7a3zi-q`][].
+- NUCLEO-H7S3L8 as [`modm:board:nucleo-h7s3l8`][].
+- NUCLEO-L4R5ZI as [`modm:board:nucleo-l4r5zi`][].
+- NUCLEO-U5A5ZJ-Q as [`modm:board:nucleo-u5a5zj-q`][].
+- WeAct G030F6 as [`modm:board:weact-g030f6`][].
+- WeAct H7R3Z8 as [`modm:board:weact-h7r3z8`][].
+
+New device drivers:
+
+- ADXL345 accelerometer as [`modm:driver:adxl345`][].
+- DMA logic analyzer as [`modm:driver:logic_analyzer`][].
+- USB3803 USB 2.0 hub as [`modm:driver:usb3803`][].
+
+Known bugs:
+
+- OpenOCD cannot enable SWO on STM32H7 targets. See [#1079][].
+- `lbuild build` and `lbuild clean` do not remove all previously generated files
+  when the configuration changes. See [#285][].
+
+Many thanks to all our contributors:
+
+- Christopher Durand ([@chris-durand][])
+- Kaelin Laundry ([@WasabiFan][])
+- Niklas Hauser ([@salkinium][])
+- Sid Prabhakaran ([@bid-p][]) 🎉
+
+PR #TBD -> [2026q4][].
+
+<details>
+<summary>Detailed changelog</summary>
+
+#### 2026-11-24: Select the DFU device by serial number
+
+PR [#1449][] -> [2c0c21b][] with medium impact on STM32 TinyUSB users.
+
+#### 2026-11-24: Fix LTO with libstdc++ and newlib's wide and integer printf
+
+PR [#1448][] -> [544fa2d][] with low impact on wide string users.
+
+#### 2026-11-24: Support the dual-core STM32H7 devices
+
+PR [#1447][] -> [e14d24d][].
+
+#### 2026-11-22: Keep Flash::getPage(offset) working as deprecated
+
+PR [#1446][] -> [40bb0d2][] with low impact on STM32 flash users.
+
+#### 2026-11-22: Add batched MC33XS2410 transfer() and fix lost events
+
+PR [#1444][] -> [185de94][] with low impact on MC33XS2410 users.
+
+#### 2026-11-22: Fix extended SPI and enable it on STM32U3 and U5
+
+PR [#1445][] -> [d532cbc][].
+
+#### 2026-11-22: Move external modules into modm:ext
+
+PR [#1443][] -> [55adcde][] with low impact, requires lbuild v1.24.2.
+
+#### 2026-11-22: Fix API docs, STM32 system bootloader and add RP2040 PICOBOOT
+
+PR [#1441][] -> [49ff853][].
+
+#### 2026-11-22: Fix RP2040 atomic lock and share fiber primitives across schedulers
+
+PR [#1440][] -> [07d6c32][] with low impact on RP2040.
+
+#### 2026-11-21: Implement hosted fibers with threads
+
+PR [#1439][] -> [ad3124a][] with low impact on hosted targets.
+
+#### 2026-11-21: Fix nRF watchdog and CMSIS handler aliases
+
+PR [#1438][] -> [4f6abdf][] with high impact on nRF watchdog users.
+
+#### 2026-11-21: Add thread-local storage per fiber
+
+PR [#1437][] -> [3138dba][].
+
+#### 2026-11-21: Add power-loss safe Zephyr Memory Storage
+
+PR [#1431][] -> [3ef09a0][].
+
+#### 2026-11-19: Fix bxCAN and FDCAN drivers and add priority TX queue
+
+PR [#1435][] -> [666f20f][] with medium impact on STM32 CAN.
+
+#### 2026-11-17: Add STM32 system bootloader module
+
+PR [#1434][] -> [e3057b8][].
+
+#### 2026-11-17: Fix I2C bus clear and bit-banged STOP
+
+PR [#1433][] -> [10da533][] with low impact.
+
+#### 2026-11-15: Add STM32C5, STM32G5 and STM32H7P support
+
+PR [#1432][] -> [55b73ef][].
+
+#### 2026-11-14: Move XPCC to modm-io/xpcc and deprecate it
+
+PR [#1429][] -> [78a900e][] with low impact on XPCC users.
+
+#### 2026-11-14: Rewrite flash driver for all STM32 families
+
+PR [#1424][] -> [b86fb78][] with low impact on STM32 flash users.
+
+#### 2026-11-13: Add five new development boards
+
+PR [#1428][] -> [a9e16a6][].
+
+#### 2026-11-12: STM32 IWDG initialize() starts the watchdog
+
+PR [#1427][] -> [834fd05][] with high impact on STM32 watchdog users.
+
+#### 2026-11-12: Fix fiber IODevice lock and synchronization primitives
+
+PR [#1426][] -> [40d479e][] with low impact.
+
+#### 2026-11-12: Fix STM32 clock tree bugs
+
+PR [#1425][] -> [8624372][] with medium impact on STM32.
+
+#### 2026-11-11: Rewrite STM32 I2C drivers from peripheral models
+
+PR [#1423][] -> [be79d14][] with medium impact on STM32 I2C.
+
+#### 2026-11-08: Replace TLSF and block heaps with Zephyr heap and o1heap
+
+PR [#1420][] -> [ea82625][] with medium impact on Cortex-M.
+
+#### 2026-11-08: Fix fiber overflow and delay bugs
+
+PR [#1419][] -> [47f5a5b][] with low impact.
+
+#### 2026-11-08: Add port arguments for OpenOCD and J-Link servers
+
+PR [#1418][] -> [42de62a][].
+
+#### 2026-11-08: Add DMA logic analyzer
+
+PR [#1404][] -> [9bd4c03][].
+
+#### 2026-11-06: Fix J-Link programming and delays on nRF5340
+
+PR [#1416][] -> [51546f4][] with low impact on nRF5340.
+
+#### 2026-11-06: Fix G474RE button polarity and flash sector overflow
+
+PR [#1415][] -> [2ec66cf][] with low impact.
+
+#### 2026-11-02: Enable the DMA driver on STM32U0
+
+PR [#1412][] -> [fd0b8a9][].
+
+#### 2026-11-01: Add DMA driver for STM32 GPDMA, HPDMA and LPDMA
+
+PR [#1411][] -> [79b644f][].
+
+#### 2026-11-01: Update modm-devices to data from modm-data
+
+PR [#1410][] -> [92b7e2d][] with low impact.
+
+#### 2026-10-31: More constexpr and modern C++ for math and vectors
+
+PR [#1408][] -> [32e9bd6][] with low impact.
+
+#### 2026-10-30: Modernize modm with the C++23 standard library
+
+PR [#1394][] -> [b4678bf][] with low impact, deprecates many APIs.
+
+#### 2026-10-29: Fiber arguments and empty construction
+
+PR [#1407][] -> [9b965c9][] with low impact on fibers.
+
+#### 2026-10-27: Add USB3803 USB 2.0 hub driver
+
+PR [#1406][] -> [1c2f0e0][].
+
+#### 2026-10-25: Recover the I2C bus from stuck devices
+
+PR [#1403][] -> [bba5af3][] with low impact on I2C.
+
+#### 2026-10-25: Fix bugs found on hardware and in the issue tracker
+
+PR [#1402][] -> [a32b2e9][] with low impact.
+
+#### 2026-10-24: Fix STM32 EXTI port selection and lines 32+
+
+PR [#1401][] -> [b4c85bf][] with low impact on STM32.
+
+#### 2026-10-22: Add STM32H7R/S support
+
+PR [#1396][] -> [37b1859][].
+
+#### 2026-10-21: Move remaining STM32 families to new RCC API
+
+PR [#1400][] -> [096405b][] with high impact on STM32F7/G4/H7/L1/L4/L5.
+
+#### 2026-10-20: Fix SysTick clocks jumping back
+
+PR [#1399][] -> [5229a44][] with low impact.
+
+#### 2026-10-20: Apply patches during generation with lbuild
+
+PR [#1397][] -> [1f69361][] with medium impact, requires lbuild v1.24.
+
+#### 2026-10-18: Modernize atomic module with std::atomic
+
+PR [#1395][] -> [7cafd17][] with medium impact.
+
+#### 2026-10-17: Fix bugs found by running the examples on hardware
+
+PR [#1393][] -> [b972e2c][] with low impact.
+
+#### 2026-10-17: Move fiber synchronization primitives
+
+PR [#1388][] -> [6c23e5e][] with medium impact on fibers.
+
+#### 2026-10-17: Add multiple configurations to deduplicate examples
+
+PR [#1118][] -> [8dcc5e2][] with low impact.
+
+#### 2026-10-13: Fix build system on Windows
+
+PR [#1389][] -> [7d99e46][] with low impact.
+
+#### 2026-10-07: Add board connections and hosted configuration
+
+PR [#1387][] -> [50d0d82][].
+
+#### 2026-10-04: Make modm compilable with Clang
+
+PR [#1349][] -> [d99b6e5][].
+
+#### 2026-10-03: Fix bugs found by LTO and update pico-sdk to v2.3.1
+
+PR [#1386][] -> [d211cfe][] with low impact.
+
+#### 2026-10-03: Add Link-Time Optimization
+
+PR [#1375][] -> [88c4188][].
+
+#### 2026-10-01: Update external submodules
+
+PR [#1382][] -> [353f327][] with medium impact on external libraries.
+
+#### 2026-10-01: Update to GCC 15
+
+PR [#1342][] -> [4fcec7b][] with medium impact.
+
+</details>
+
+
 ## 2026-10-01: 2026q3 release
 
 This release covers everything from 2026-07-01 and has been tested with avr-gcc
@@ -4069,6 +4456,7 @@ Please note that contributions from xpcc were continuously ported to modm.
 [2026q1]: https://github.com/modm-io/modm/releases/tag/2026q1
 [2026q2]: https://github.com/modm-io/modm/releases/tag/2026q2
 [2026q3]: https://github.com/modm-io/modm/releases/tag/2026q3
+[2026q4]: https://github.com/modm-io/modm/releases/tag/2026q4
 
 [@19joho66]: https://github.com/19joho66
 [@ASMfreaK]: https://github.com/ASMfreaK
@@ -4093,6 +4481,7 @@ Please note that contributions from xpcc were continuously ported to modm.
 [@amarokmclion]: https://github.com/amarokmclion
 [@andryblack]: https://github.com/andryblack
 [@becseya]: https://github.com/becseya
+[@bid-p]: https://github.com/bid-p
 [@cajt]: https://github.com/cajt
 [@calebchalmers]: https://github.com/calebchalmers
 [@ceremcem]: https://github.com/ceremcem
@@ -4154,8 +4543,10 @@ Please note that contributions from xpcc were continuously ported to modm.
 [`modm:board:disco-g071rb`]: https://modm.io/reference/module/modm-board-disco-g071rb
 [`modm:board:feather-m0`]: https://modm.io/reference/module/modm-board-feather-m0
 [`modm:board:feather-rp2040`]: https://modm.io/reference/module/modm-board-feather-rp2040
+[`modm:board:hosted`]: https://modm.io/reference/module/modm-board-hosted
 [`modm:board:mega-2560-pro`]: https://modm.io/reference/module/modm-board-mega-2560-pro
 [`modm:board:nucleo-c031c6`]: https://modm.io/reference/module/modm-board-nucleo-c031c6
+[`modm:board:nucleo-c5a3zg`]: https://modm.io/reference/module/modm-board-nucleo-c5a3zg
 [`modm:board:nucleo-f042k6`]: https://modm.io/reference/module/modm-board-nucleo-f042k6
 [`modm:board:nucleo-f072rb`]: https://modm.io/reference/module/modm-board-nucleo-f072rb
 [`modm:board:nucleo-f091rc`]: https://modm.io/reference/module/modm-board-nucleo-f091rc
@@ -4168,13 +4559,18 @@ Please note that contributions from xpcc were continuously ported to modm.
 [`modm:board:nucleo-g431kb`]: https://modm.io/reference/module/modm-board-nucleo-g431kb
 [`modm:board:nucleo-g431rb`]: https://modm.io/reference/module/modm-board-nucleo-g431rb
 [`modm:board:nucleo-g474re`]: https://modm.io/reference/module/modm-board-nucleo-g474re
+[`modm:board:nucleo-g564re`]: https://modm.io/reference/module/modm-board-nucleo-g564re
 [`modm:board:nucleo-h723zg`]: https://modm.io/reference/module/modm-board-nucleo-h723zg
 [`modm:board:nucleo-h743zi`]: https://modm.io/reference/module/modm-board-nucleo-h743zi
+[`modm:board:nucleo-h7a3zi-q`]: https://modm.io/reference/module/modm-board-nucleo-h7a3zi-q
+[`modm:board:nucleo-h7s3l8`]: https://modm.io/reference/module/modm-board-nucleo-h7s3l8
 [`modm:board:nucleo-l031k6`]: https://modm.io/reference/module/modm-board-nucleo-l031k6
 [`modm:board:nucleo-l053r8`]: https://modm.io/reference/module/modm-board-nucleo-l053r8
 [`modm:board:nucleo-l452re`]: https://modm.io/reference/module/modm-board-nucleo-l452re
 [`modm:board:nucleo-l496zg-p`]: https://modm.io/reference/module/modm-board-nucleo-l496zg-p
+[`modm:board:nucleo-l4r5zi`]: https://modm.io/reference/module/modm-board-nucleo-l4r5zi
 [`modm:board:nucleo-l552ze-q`]: https://modm.io/reference/module/modm-board-nucleo-l552ze-q
+[`modm:board:nucleo-u5a5zj-q`]: https://modm.io/reference/module/modm-board-nucleo-u5a5zj-q
 [`modm:board:raspberrypi`]: https://modm.io/reference/module/modm-board-raspberrypi
 [`modm:board:rp-pico`]: https://modm.io/reference/module/modm-board-rp-pico
 [`modm:board:samd21-mini`]: https://modm.io/reference/module/modm-board-samd21-mini
@@ -4187,7 +4583,9 @@ Please note that contributions from xpcc were continuously ported to modm.
 [`modm:board:stm32_f32ve`]: https://modm.io/reference/module/modm-board-stm32_f32ve
 [`modm:board:thingplus-rp2040`]: https://modm.io/reference/module/modm-board-thingplus-rp2040
 [`modm:board:weact-c011f6`]: https://modm.io/reference/module/modm-board-weact-c011f6
+[`modm:board:weact-g030f6`]: https://modm.io/reference/module/modm-board-weact-g030f6
 [`modm:board:weact-g0b1cb`]: https://modm.io/reference/module/modm-board-weact-g0b1cb
+[`modm:board:weact-h7r3z8`]: https://modm.io/reference/module/modm-board-weact-h7r3z8
 [`modm:disco-f401vc`]: https://modm.io/reference/module/modm-disco-f401vc
 [`modm:disco-f411ve`]: https://modm.io/reference/module/modm-disco-f411ve
 [`modm:disco-f469ni:b-03`]: https://modm.io/reference/module/modm-disco-f469ni-b-03
@@ -4195,6 +4593,7 @@ Please note that contributions from xpcc were continuously ported to modm.
 [`modm:driver:ads7828`]: https://modm.io/reference/module/modm-driver-ads7828
 [`modm:driver:ads816x`]: https://modm.io/reference/module/modm-driver-ads816x
 [`modm:driver:ads868x`]: https://modm.io/reference/module/modm-driver-ads868x
+[`modm:driver:adxl345`]: https://modm.io/reference/module/modm-driver-adxl345
 [`modm:driver:apa102`]: https://modm.io/reference/module/modm-driver-apa102
 [`modm:driver:as5047`]: https://modm.io/reference/module/modm-driver-as5047
 [`modm:driver:as5600`]: https://modm.io/reference/module/modm-driver-as5600
@@ -4218,6 +4617,7 @@ Please note that contributions from xpcc were continuously ported to modm.
 [`modm:driver:ixm42xxx`]: https://modm.io/reference/module/modm-driver-ixm42xxx
 [`modm:driver:lan8720a`]: https://modm.io/reference/module/modm-driver-lan8720a
 [`modm:driver:lis3mdl`]: https://modm.io/reference/module/modm-driver-lis3mdl
+[`modm:driver:logic_analyzer`]: https://modm.io/reference/module/modm-driver-logic_analyzer
 [`modm:driver:lp503x`]: https://modm.io/reference/module/modm-driver-lp503x
 [`modm:driver:lsm6ds33`]: https://modm.io/reference/module/modm-driver-lsm6ds33
 [`modm:driver:lsm6dso`]: https://modm.io/reference/module/modm-driver-lsm6dso
@@ -4249,6 +4649,7 @@ Please note that contributions from xpcc were continuously ported to modm.
 [`modm:driver:tlc594x`]: https://modm.io/reference/module/modm-driver-tlc594x
 [`modm:driver:tmp12x`]: https://modm.io/reference/module/modm-driver-tmp12x
 [`modm:driver:touch2046`]: https://modm.io/reference/module/modm-driver-touch2046
+[`modm:driver:usb3803`]: https://modm.io/reference/module/modm-driver-usb3803
 [`modm:driver:vl53:vl53l5cx`]: https://modm.io/reference/module/modm-driver-vl53-vl53l5cx
 [`modm:driver:vl53:vl53lmz`]: https://modm.io/reference/module/modm-driver-vl53-vl53lmz
 [`modm:driver:ws2812`]: https://modm.io/reference/module/modm-driver-ws2812
@@ -4306,6 +4707,7 @@ Please note that contributions from xpcc were continuously ported to modm.
 [#1115]: https://github.com/modm-io/modm/pull/1115
 [#1116]: https://github.com/modm-io/modm/pull/1116
 [#1117]: https://github.com/modm-io/modm/pull/1117
+[#1118]: https://github.com/modm-io/modm/pull/1118
 [#1120]: https://github.com/modm-io/modm/pull/1120
 [#1125]: https://github.com/modm-io/modm/pull/1125
 [#1126]: https://github.com/modm-io/modm/pull/1126
@@ -4378,9 +4780,11 @@ Please note that contributions from xpcc were continuously ported to modm.
 [#1339]: https://github.com/modm-io/modm/pull/1339
 [#1340]: https://github.com/modm-io/modm/pull/1340
 [#1341]: https://github.com/modm-io/modm/pull/1341
+[#1342]: https://github.com/modm-io/modm/pull/1342
 [#1345]: https://github.com/modm-io/modm/pull/1345
 [#1347]: https://github.com/modm-io/modm/pull/1347
 [#1348]: https://github.com/modm-io/modm/pull/1348
+[#1349]: https://github.com/modm-io/modm/pull/1349
 [#1351]: https://github.com/modm-io/modm/pull/1351
 [#1353]: https://github.com/modm-io/modm/pull/1353
 [#1354]: https://github.com/modm-io/modm/pull/1354
@@ -4391,8 +4795,60 @@ Please note that contributions from xpcc were continuously ported to modm.
 [#1362]: https://github.com/modm-io/modm/pull/1362
 [#136]: https://github.com/modm-io/modm/pull/136
 [#1372]: https://github.com/modm-io/modm/pull/1372
+[#1375]: https://github.com/modm-io/modm/pull/1375
 [#1378]: https://github.com/modm-io/modm/pull/1378
+[#1382]: https://github.com/modm-io/modm/pull/1382
 [#1383]: https://github.com/modm-io/modm/pull/1383
+[#1386]: https://github.com/modm-io/modm/pull/1386
+[#1387]: https://github.com/modm-io/modm/pull/1387
+[#1388]: https://github.com/modm-io/modm/pull/1388
+[#1389]: https://github.com/modm-io/modm/pull/1389
+[#1393]: https://github.com/modm-io/modm/pull/1393
+[#1394]: https://github.com/modm-io/modm/pull/1394
+[#1395]: https://github.com/modm-io/modm/pull/1395
+[#1396]: https://github.com/modm-io/modm/pull/1396
+[#1397]: https://github.com/modm-io/modm/pull/1397
+[#1399]: https://github.com/modm-io/modm/pull/1399
+[#1400]: https://github.com/modm-io/modm/pull/1400
+[#1401]: https://github.com/modm-io/modm/pull/1401
+[#1402]: https://github.com/modm-io/modm/pull/1402
+[#1403]: https://github.com/modm-io/modm/pull/1403
+[#1404]: https://github.com/modm-io/modm/pull/1404
+[#1406]: https://github.com/modm-io/modm/pull/1406
+[#1407]: https://github.com/modm-io/modm/pull/1407
+[#1408]: https://github.com/modm-io/modm/pull/1408
+[#1410]: https://github.com/modm-io/modm/pull/1410
+[#1411]: https://github.com/modm-io/modm/pull/1411
+[#1412]: https://github.com/modm-io/modm/pull/1412
+[#1415]: https://github.com/modm-io/modm/pull/1415
+[#1416]: https://github.com/modm-io/modm/pull/1416
+[#1418]: https://github.com/modm-io/modm/pull/1418
+[#1419]: https://github.com/modm-io/modm/pull/1419
+[#1420]: https://github.com/modm-io/modm/pull/1420
+[#1423]: https://github.com/modm-io/modm/pull/1423
+[#1424]: https://github.com/modm-io/modm/pull/1424
+[#1425]: https://github.com/modm-io/modm/pull/1425
+[#1426]: https://github.com/modm-io/modm/pull/1426
+[#1427]: https://github.com/modm-io/modm/pull/1427
+[#1428]: https://github.com/modm-io/modm/pull/1428
+[#1429]: https://github.com/modm-io/modm/pull/1429
+[#1431]: https://github.com/modm-io/modm/pull/1431
+[#1432]: https://github.com/modm-io/modm/pull/1432
+[#1433]: https://github.com/modm-io/modm/pull/1433
+[#1434]: https://github.com/modm-io/modm/pull/1434
+[#1435]: https://github.com/modm-io/modm/pull/1435
+[#1437]: https://github.com/modm-io/modm/pull/1437
+[#1438]: https://github.com/modm-io/modm/pull/1438
+[#1439]: https://github.com/modm-io/modm/pull/1439
+[#1440]: https://github.com/modm-io/modm/pull/1440
+[#1441]: https://github.com/modm-io/modm/pull/1441
+[#1443]: https://github.com/modm-io/modm/pull/1443
+[#1444]: https://github.com/modm-io/modm/pull/1444
+[#1445]: https://github.com/modm-io/modm/pull/1445
+[#1446]: https://github.com/modm-io/modm/pull/1446
+[#1447]: https://github.com/modm-io/modm/pull/1447
+[#1448]: https://github.com/modm-io/modm/pull/1448
+[#1449]: https://github.com/modm-io/modm/pull/1449
 [#153]: https://github.com/modm-io/modm/pull/153
 [#167]: https://github.com/modm-io/modm/pull/167
 [#171]: https://github.com/modm-io/modm/pull/171
@@ -4612,8 +5068,10 @@ Please note that contributions from xpcc were continuously ported to modm.
 [04688bc]: https://github.com/modm-io/modm/commit/04688bc
 [04ed0a5]: https://github.com/modm-io/modm/commit/04ed0a5
 [06a1618]: https://github.com/modm-io/modm/commit/06a1618
+[07d6c32]: https://github.com/modm-io/modm/commit/07d6c32
 [08a6a20]: https://github.com/modm-io/modm/commit/08a6a20
 [08cd479]: https://github.com/modm-io/modm/commit/08cd479
+[096405b]: https://github.com/modm-io/modm/commit/096405b
 [0994a55]: https://github.com/modm-io/modm/commit/0994a55
 [0cd2bc9]: https://github.com/modm-io/modm/commit/0cd2bc9
 [0cf1c65]: https://github.com/modm-io/modm/commit/0cf1c65
@@ -4621,6 +5079,7 @@ Please note that contributions from xpcc were continuously ported to modm.
 [0e3d280]: https://github.com/modm-io/modm/commit/0e3d280
 [0f0505f]: https://github.com/modm-io/modm/commit/0f0505f
 [0fd53a8]: https://github.com/modm-io/modm/commit/0fd53a8
+[10da533]: https://github.com/modm-io/modm/commit/10da533
 [10eff63]: https://github.com/modm-io/modm/commit/10eff63
 [10fdc3f]: https://github.com/modm-io/modm/commit/10fdc3f
 [11ffe92]: https://github.com/modm-io/modm/commit/11ffe92
@@ -4633,15 +5092,18 @@ Please note that contributions from xpcc were continuously ported to modm.
 [141aa71]: https://github.com/modm-io/modm/commit/141aa71
 [16385fa]: https://github.com/modm-io/modm/commit/16385fa
 [165adf0]: https://github.com/modm-io/modm/commit/165adf0
+[185de94]: https://github.com/modm-io/modm/commit/185de94
 [187ddd8]: https://github.com/modm-io/modm/commit/187ddd8
 [190bc78]: https://github.com/modm-io/modm/commit/190bc78
 [195f7e1]: https://github.com/modm-io/modm/commit/195f7e1
 [1a11b08]: https://github.com/modm-io/modm/commit/1a11b08
 [1a89fbe]: https://github.com/modm-io/modm/commit/1a89fbe
+[1c2f0e0]: https://github.com/modm-io/modm/commit/1c2f0e0
 [1c9c0b6]: https://github.com/modm-io/modm/commit/1c9c0b6
 [1e08970]: https://github.com/modm-io/modm/commit/1e08970
 [1f210c1]: https://github.com/modm-io/modm/commit/1f210c1
 [1f5d06e]: https://github.com/modm-io/modm/commit/1f5d06e
+[1f69361]: https://github.com/modm-io/modm/commit/1f69361
 [1fc3805]: https://github.com/modm-io/modm/commit/1fc3805
 [20890c5]: https://github.com/modm-io/modm/commit/20890c5
 [20a9705]: https://github.com/modm-io/modm/commit/20a9705
@@ -4658,16 +5120,22 @@ Please note that contributions from xpcc were continuously ported to modm.
 [241b0d1]: https://github.com/modm-io/modm/commit/241b0d1
 [276f5b3]: https://github.com/modm-io/modm/commit/276f5b3
 [295dbc3]: https://github.com/modm-io/modm/commit/295dbc3
+[2c0c21b]: https://github.com/modm-io/modm/commit/2c0c21b
 [2c22fae]: https://github.com/modm-io/modm/commit/2c22fae
 [2d2199b]: https://github.com/modm-io/modm/commit/2d2199b
 [2e34b11]: https://github.com/modm-io/modm/commit/2e34b11
 [2e40ab4]: https://github.com/modm-io/modm/commit/2e40ab4
+[2ec66cf]: https://github.com/modm-io/modm/commit/2ec66cf
 [2ef7a29]: https://github.com/modm-io/modm/commit/2ef7a29
 [3072005]: https://github.com/modm-io/modm/commit/3072005
 [30e24e6]: https://github.com/modm-io/modm/commit/30e24e6
+[3138dba]: https://github.com/modm-io/modm/commit/3138dba
 [31bbf48]: https://github.com/modm-io/modm/commit/31bbf48
+[32e9bd6]: https://github.com/modm-io/modm/commit/32e9bd6
+[353f327]: https://github.com/modm-io/modm/commit/353f327
 [36130b9]: https://github.com/modm-io/modm/commit/36130b9
 [3614dc0]: https://github.com/modm-io/modm/commit/3614dc0
+[37b1859]: https://github.com/modm-io/modm/commit/37b1859
 [387a625]: https://github.com/modm-io/modm/commit/387a625
 [389a9c3]: https://github.com/modm-io/modm/commit/389a9c3
 [3936a28]: https://github.com/modm-io/modm/commit/3936a28
@@ -4678,17 +5146,23 @@ Please note that contributions from xpcc were continuously ported to modm.
 [3db0a3d]: https://github.com/modm-io/modm/commit/3db0a3d
 [3db3bcd]: https://github.com/modm-io/modm/commit/3db3bcd
 [3ecad35]: https://github.com/modm-io/modm/commit/3ecad35
+[3ef09a0]: https://github.com/modm-io/modm/commit/3ef09a0
 [3f3ff3d]: https://github.com/modm-io/modm/commit/3f3ff3d
+[40bb0d2]: https://github.com/modm-io/modm/commit/40bb0d2
+[40d479e]: https://github.com/modm-io/modm/commit/40d479e
 [416ced6]: https://github.com/modm-io/modm/commit/416ced6
 [42ae970]: https://github.com/modm-io/modm/commit/42ae970
+[42de62a]: https://github.com/modm-io/modm/commit/42de62a
 [434ca5c]: https://github.com/modm-io/modm/commit/434ca5c
 [43f32e6]: https://github.com/modm-io/modm/commit/43f32e6
 [45ae68a]: https://github.com/modm-io/modm/commit/45ae68a
 [45f0685]: https://github.com/modm-io/modm/commit/45f0685
 [47adfd6]: https://github.com/modm-io/modm/commit/47adfd6
+[47f5a5b]: https://github.com/modm-io/modm/commit/47f5a5b
 [4885c53]: https://github.com/modm-io/modm/commit/4885c53
 [48d73dc]: https://github.com/modm-io/modm/commit/48d73dc
 [490e868]: https://github.com/modm-io/modm/commit/490e868
+[49ff853]: https://github.com/modm-io/modm/commit/49ff853
 [4a82a94]: https://github.com/modm-io/modm/commit/4a82a94
 [4ab28fe]: https://github.com/modm-io/modm/commit/4ab28fe
 [4ce1a47]: https://github.com/modm-io/modm/commit/4ce1a47
@@ -4696,13 +5170,21 @@ Please note that contributions from xpcc were continuously ported to modm.
 [4d69227]: https://github.com/modm-io/modm/commit/4d69227
 [4f25cdf]: https://github.com/modm-io/modm/commit/4f25cdf
 [4f50d00]: https://github.com/modm-io/modm/commit/4f50d00
+[4f6abdf]: https://github.com/modm-io/modm/commit/4f6abdf
+[4fcec7b]: https://github.com/modm-io/modm/commit/4fcec7b
 [4fdd2a1]: https://github.com/modm-io/modm/commit/4fdd2a1
 [4ff604f]: https://github.com/modm-io/modm/commit/4ff604f
+[50d0d82]: https://github.com/modm-io/modm/commit/50d0d82
+[51546f4]: https://github.com/modm-io/modm/commit/51546f4
 [516b2b3]: https://github.com/modm-io/modm/commit/516b2b3
 [517bd84]: https://github.com/modm-io/modm/commit/517bd84
+[5229a44]: https://github.com/modm-io/modm/commit/5229a44
 [5332765]: https://github.com/modm-io/modm/commit/5332765
 [53796b0]: https://github.com/modm-io/modm/commit/53796b0
 [544f6d3]: https://github.com/modm-io/modm/commit/544f6d3
+[544fa2d]: https://github.com/modm-io/modm/commit/544fa2d
+[55adcde]: https://github.com/modm-io/modm/commit/55adcde
+[55b73ef]: https://github.com/modm-io/modm/commit/55b73ef
 [55c88ba]: https://github.com/modm-io/modm/commit/55c88ba
 [55d5911]: https://github.com/modm-io/modm/commit/55d5911
 [564effa]: https://github.com/modm-io/modm/commit/564effa
@@ -4724,11 +5206,13 @@ Please note that contributions from xpcc were continuously ported to modm.
 [62ccc26]: https://github.com/modm-io/modm/commit/62ccc26
 [64d177a]: https://github.com/modm-io/modm/commit/64d177a
 [65bbccf]: https://github.com/modm-io/modm/commit/65bbccf
+[666f20f]: https://github.com/modm-io/modm/commit/666f20f
 [66c0868]: https://github.com/modm-io/modm/commit/66c0868
 [6a6802a]: https://github.com/modm-io/modm/commit/6a6802a
 [6b4d656]: https://github.com/modm-io/modm/commit/6b4d656
 [6b5b4ce]: https://github.com/modm-io/modm/commit/6b5b4ce
 [6be3199]: https://github.com/modm-io/modm/commit/6be3199
+[6c23e5e]: https://github.com/modm-io/modm/commit/6c23e5e
 [6de70ba]: https://github.com/modm-io/modm/commit/6de70ba
 [6e5ebf4]: https://github.com/modm-io/modm/commit/6e5ebf4
 [6e7c12f]: https://github.com/modm-io/modm/commit/6e7c12f
@@ -4743,13 +5227,17 @@ Please note that contributions from xpcc were continuously ported to modm.
 [7548c0f]: https://github.com/modm-io/modm/commit/7548c0f
 [768d749]: https://github.com/modm-io/modm/commit/768d749
 [77ae899]: https://github.com/modm-io/modm/commit/77ae899
+[78a900e]: https://github.com/modm-io/modm/commit/78a900e
 [78d18f6]: https://github.com/modm-io/modm/commit/78d18f6
+[79b644f]: https://github.com/modm-io/modm/commit/79b644f
 [7b5827f]: https://github.com/modm-io/modm/commit/7b5827f
 [7b8f2cc]: https://github.com/modm-io/modm/commit/7b8f2cc
 [7ba2fbb]: https://github.com/modm-io/modm/commit/7ba2fbb
+[7cafd17]: https://github.com/modm-io/modm/commit/7cafd17
 [7d1f7cc]: https://github.com/modm-io/modm/commit/7d1f7cc
 [7d7490d]: https://github.com/modm-io/modm/commit/7d7490d
 [7d9070d]: https://github.com/modm-io/modm/commit/7d9070d
+[7d99e46]: https://github.com/modm-io/modm/commit/7d99e46
 [7df2e7d]: https://github.com/modm-io/modm/commit/7df2e7d
 [7f30961]: https://github.com/modm-io/modm/commit/7f30961
 [8012d82]: https://github.com/modm-io/modm/commit/8012d82
@@ -4761,14 +5249,17 @@ Please note that contributions from xpcc were continuously ported to modm.
 [821677b]: https://github.com/modm-io/modm/commit/821677b
 [8230fef]: https://github.com/modm-io/modm/commit/8230fef
 [82bc4a9]: https://github.com/modm-io/modm/commit/82bc4a9
+[834fd05]: https://github.com/modm-io/modm/commit/834fd05
 [845840e]: https://github.com/modm-io/modm/commit/845840e
 [850b554]: https://github.com/modm-io/modm/commit/850b554
 [8515ab5]: https://github.com/modm-io/modm/commit/8515ab5
 [85eec34]: https://github.com/modm-io/modm/commit/85eec34
+[8624372]: https://github.com/modm-io/modm/commit/8624372
 [874c8d6]: https://github.com/modm-io/modm/commit/874c8d6
 [87b6405]: https://github.com/modm-io/modm/commit/87b6405
 [8820d6b]: https://github.com/modm-io/modm/commit/8820d6b
 [8896b5b]: https://github.com/modm-io/modm/commit/8896b5b
+[88c4188]: https://github.com/modm-io/modm/commit/88c4188
 [897579e]: https://github.com/modm-io/modm/commit/897579e
 [89f387f]: https://github.com/modm-io/modm/commit/89f387f
 [8a3a20b]: https://github.com/modm-io/modm/commit/8a3a20b
@@ -4776,12 +5267,14 @@ Please note that contributions from xpcc were continuously ported to modm.
 [8bcbe25]: https://github.com/modm-io/modm/commit/8bcbe25
 [8c322a2]: https://github.com/modm-io/modm/commit/8c322a2
 [8ca2f35]: https://github.com/modm-io/modm/commit/8ca2f35
+[8dcc5e2]: https://github.com/modm-io/modm/commit/8dcc5e2
 [901a3dc]: https://github.com/modm-io/modm/commit/901a3dc
 [9036666]: https://github.com/modm-io/modm/commit/9036666
 [90774be]: https://github.com/modm-io/modm/commit/90774be
 [911d4a9]: https://github.com/modm-io/modm/commit/911d4a9
 [91dabcb]: https://github.com/modm-io/modm/commit/91dabcb
 [923f9c1]: https://github.com/modm-io/modm/commit/923f9c1
+[92b7e2d]: https://github.com/modm-io/modm/commit/92b7e2d
 [9381fd0]: https://github.com/modm-io/modm/commit/9381fd0
 [93bba13]: https://github.com/modm-io/modm/commit/93bba13
 [93c4805]: https://github.com/modm-io/modm/commit/93c4805
@@ -4792,6 +5285,8 @@ Please note that contributions from xpcc were continuously ported to modm.
 [98a2483]: https://github.com/modm-io/modm/commit/98a2483
 [98b1337]: https://github.com/modm-io/modm/commit/98b1337
 [9b6aeee]: https://github.com/modm-io/modm/commit/9b6aeee
+[9b965c9]: https://github.com/modm-io/modm/commit/9b965c9
+[9bd4c03]: https://github.com/modm-io/modm/commit/9bd4c03
 [9c6d656]: https://github.com/modm-io/modm/commit/9c6d656
 [9cbea26]: https://github.com/modm-io/modm/commit/9cbea26
 [9d33843]: https://github.com/modm-io/modm/commit/9d33843
@@ -4803,6 +5298,7 @@ Please note that contributions from xpcc were continuously ported to modm.
 [a05cc62]: https://github.com/modm-io/modm/commit/a05cc62
 [a105072]: https://github.com/modm-io/modm/commit/a105072
 [a173bde]: https://github.com/modm-io/modm/commit/a173bde
+[a32b2e9]: https://github.com/modm-io/modm/commit/a32b2e9
 [a371df6]: https://github.com/modm-io/modm/commit/a371df6
 [a38feca]: https://github.com/modm-io/modm/commit/a38feca
 [a40f206]: https://github.com/modm-io/modm/commit/a40f206
@@ -4812,11 +5308,13 @@ Please note that contributions from xpcc were continuously ported to modm.
 [a771042]: https://github.com/modm-io/modm/commit/a771042
 [a7cfe65]: https://github.com/modm-io/modm/commit/a7cfe65
 [a8edbe8]: https://github.com/modm-io/modm/commit/a8edbe8
+[a9e16a6]: https://github.com/modm-io/modm/commit/a9e16a6
 [a9e4bc2]: https://github.com/modm-io/modm/commit/a9e4bc2
 [aa3d258]: https://github.com/modm-io/modm/commit/aa3d258
 [ab9bcee]: https://github.com/modm-io/modm/commit/ab9bcee
 [ac46099]: https://github.com/modm-io/modm/commit/ac46099
 [acaa7ff]: https://github.com/modm-io/modm/commit/acaa7ff
+[ad3124a]: https://github.com/modm-io/modm/commit/ad3124a
 [ae74049]: https://github.com/modm-io/modm/commit/ae74049
 [aeee675]: https://github.com/modm-io/modm/commit/aeee675
 [af2b352]: https://github.com/modm-io/modm/commit/af2b352
@@ -4828,13 +5326,19 @@ Please note that contributions from xpcc were continuously ported to modm.
 [b153186]: https://github.com/modm-io/modm/commit/b153186
 [b18385c]: https://github.com/modm-io/modm/commit/b18385c
 [b1e5588]: https://github.com/modm-io/modm/commit/b1e5588
+[b4678bf]: https://github.com/modm-io/modm/commit/b4678bf
+[b4c85bf]: https://github.com/modm-io/modm/commit/b4c85bf
 [b4eddeb]: https://github.com/modm-io/modm/commit/b4eddeb
 [b570d07]: https://github.com/modm-io/modm/commit/b570d07
 [b721551]: https://github.com/modm-io/modm/commit/b721551
 [b78acd5]: https://github.com/modm-io/modm/commit/b78acd5
 [b8648be]: https://github.com/modm-io/modm/commit/b8648be
+[b86fb78]: https://github.com/modm-io/modm/commit/b86fb78
+[b972e2c]: https://github.com/modm-io/modm/commit/b972e2c
 [ba23833]: https://github.com/modm-io/modm/commit/ba23833
 [ba61a34]: https://github.com/modm-io/modm/commit/ba61a34
+[bba5af3]: https://github.com/modm-io/modm/commit/bba5af3
+[be79d14]: https://github.com/modm-io/modm/commit/be79d14
 [bfafcd3]: https://github.com/modm-io/modm/commit/bfafcd3
 [c0a8c51]: https://github.com/modm-io/modm/commit/c0a8c51
 [c148bf8]: https://github.com/modm-io/modm/commit/c148bf8
@@ -4858,21 +5362,26 @@ Please note that contributions from xpcc were continuously ported to modm.
 [cf7769b]: https://github.com/modm-io/modm/commit/cf7769b
 [d0fcb0d]: https://github.com/modm-io/modm/commit/d0fcb0d
 [d1938eb]: https://github.com/modm-io/modm/commit/d1938eb
+[d211cfe]: https://github.com/modm-io/modm/commit/d211cfe
 [d21e991]: https://github.com/modm-io/modm/commit/d21e991
 [d2d38a0]: https://github.com/modm-io/modm/commit/d2d38a0
 [d3496a3]: https://github.com/modm-io/modm/commit/d3496a3
 [d46c09d]: https://github.com/modm-io/modm/commit/d46c09d
+[d532cbc]: https://github.com/modm-io/modm/commit/d532cbc
 [d772940]: https://github.com/modm-io/modm/commit/d772940
 [d8be0a2]: https://github.com/modm-io/modm/commit/d8be0a2
 [d982a85]: https://github.com/modm-io/modm/commit/d982a85
+[d99b6e5]: https://github.com/modm-io/modm/commit/d99b6e5
 [dab6c79]: https://github.com/modm-io/modm/commit/dab6c79
 [dbfd93b]: https://github.com/modm-io/modm/commit/dbfd93b
 [dc56af2]: https://github.com/modm-io/modm/commit/dc56af2
 [dee5ea2]: https://github.com/modm-io/modm/commit/dee5ea2
 [df47974]: https://github.com/modm-io/modm/commit/df47974
 [e0d1327]: https://github.com/modm-io/modm/commit/e0d1327
+[e14d24d]: https://github.com/modm-io/modm/commit/e14d24d
 [e1d8a17]: https://github.com/modm-io/modm/commit/e1d8a17
 [e233708]: https://github.com/modm-io/modm/commit/e233708
+[e3057b8]: https://github.com/modm-io/modm/commit/e3057b8
 [e39bca4]: https://github.com/modm-io/modm/commit/e39bca4
 [e3ba913]: https://github.com/modm-io/modm/commit/e3ba913
 [e3c0321]: https://github.com/modm-io/modm/commit/e3c0321
@@ -4880,6 +5389,7 @@ Please note that contributions from xpcc were continuously ported to modm.
 [e4b1a4a]: https://github.com/modm-io/modm/commit/e4b1a4a
 [e579250]: https://github.com/modm-io/modm/commit/e579250
 [e92dc1d]: https://github.com/modm-io/modm/commit/e92dc1d
+[ea82625]: https://github.com/modm-io/modm/commit/ea82625
 [eb2748e]: https://github.com/modm-io/modm/commit/eb2748e
 [eba68a4]: https://github.com/modm-io/modm/commit/eba68a4
 [eda224e]: https://github.com/modm-io/modm/commit/eda224e
@@ -4890,6 +5400,7 @@ Please note that contributions from xpcc were continuously ported to modm.
 [f7dff92]: https://github.com/modm-io/modm/commit/f7dff92
 [fb21f62]: https://github.com/modm-io/modm/commit/fb21f62
 [fb2ff58]: https://github.com/modm-io/modm/commit/fb2ff58
+[fd0b8a9]: https://github.com/modm-io/modm/commit/fd0b8a9
 [fd7b7a3]: https://github.com/modm-io/modm/commit/fd7b7a3
 [fdbb45b]: https://github.com/modm-io/modm/commit/fdbb45b
 [fe4cbc5]: https://github.com/modm-io/modm/commit/fe4cbc5

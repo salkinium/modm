@@ -94,6 +94,7 @@ author_handles = {
     "Sebastian Tibor Bakonyvari": "twast92",
     "Sergey Pluzhnikov": "ser-plu",
     "Sergiy Yevtushenko": "siy",
+    "Sid Prabhakaran": "bid-p",
     "Steven Macías": "StevenMacias",
     "Tarik TIRE": "7Kronos",
     "Thomas Figueroa": "OperativeF",
